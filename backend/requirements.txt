@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pydantic
+python-dotenv
+gitpython
+networkx
+rich
+jinja2
+sqlalchemy
+aiofiles
+python-multipart

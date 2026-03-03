@@ -1,0 +1,15 @@
+# Storage (VERY IMPORTANT)
+backend/storage/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Env
+.env
+
+# Node
+node_modules/
+build/
+dist/
