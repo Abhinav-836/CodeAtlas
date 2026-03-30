@@ -90,7 +90,7 @@ OpenRouter APIs (optional hybrid mode)
 🚀 Getting Started
 1️⃣ Clone the Repository
 git clone https://github.com/Abhinav-836/CodeAtlas.git
-cd CodeAtlas
+cd CodeAtlas or https://github.com/Ananonymous-4637 /CodeAtlas.git
 
 2️⃣ Backend Setup
 cd backend
