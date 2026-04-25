@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  # Ollama service with cloud model support
+  ollama:
+    image: ollama/ollama:latest
+    container_name: codeatlas-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./ollama_data:/root/.ollama  # Persists models and config
+    environment:
+      - OLLAMA_NUM_PARALLEL=4
+      - OLLAMA_MAX_LOADED_MODELS=1
+    restart: unless-stopped
+    networks:
+      - codeatlas-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # CodeAtlas backend
+  backend:
+    build: ./backend
+    container_name: codeatlas-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/.env:/app/.env  # Mount your configuration
+      - ./storage:/app/storage     # Persistent storage
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./codeatlas.db
+      - OLLAMA_BASE_URL=http://ollama:11434  # Connect to Ollama container
+      - LLM_MODEL=gpt-oss:20b-cloud
+      - LLM_PROVIDER=ollama
+      - ENABLE_AI_SUMMARIES=true
+      - ENABLE_AI_README=true
+      - ENABLE_AI_INSIGHTS=true
+      - DEBUG=false
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - codeatlas-network
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+
+  # Optional: PostgreSQL for production
+  postgres:
+    image: postgres:15-alpine
+    container_name: codeatlas-postgres
+    environment:
+      - POSTGRES_USER=codeatlas
+      - POSTGRES_PASSWORD=codeatlas123
+      - POSTGRES_DB=codeatlas
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    networks:
+      - codeatlas-network
+    profiles:
+      - with-postgres  # Enable only if needed
+
+  # Optional: Redis for caching
+  redis:
+    image: redis:7-alpine
+    container_name: codeatlas-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis_data:/data
+    restart: unless-stopped
+    networks:
+      - codeatlas-network
+    profiles:
+      - with-redis
+
+networks:
+  codeatlas-network:
+    driver: bridge

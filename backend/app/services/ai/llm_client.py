@@ -10,6 +10,7 @@ import aiohttp
 import requests
 from typing import Dict, Any, AsyncGenerator, Optional, List
 from app.core.config import settings
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,8 @@ class LLMClient:
         self.base_url = settings.OLLAMA_BASE_URL or "http://localhost:11434"
         self.model = settings.LLM_MODEL or "gpt-oss:20b-cloud"
         self.timeout = settings.LLM_TIMEOUT or 60
-        
+        self.api_key = os.getenv("OLLAMA_API_KEY", "")
+
     def _prepare_messages(self, prompt: str, system_message: Optional[str] = None) -> List[Dict[str, str]]:
         """Prepare messages in Ollama format."""
         messages = []
@@ -74,6 +76,10 @@ class LLMClient:
         Async LLM call.
         Used for AI summaries and heavy analysis.
         """
+        headers = {
+        "Authorization": f"Bearer {self.api_key}"
+        }
+        
         try:
             messages = self._prepare_messages(
                 prompt,

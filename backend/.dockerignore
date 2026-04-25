@@ -1,0 +1,52 @@
+﻿# Virtual environment
+venv/
+env/
+.env/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Logs and temp files
+*.log
+*.tmp
+*.temp
+logs/
+tmp/
+
+# Large directories
+storage/
+uploads/
+reports/
+exports/
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
