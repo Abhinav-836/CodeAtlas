@@ -1,5 +1,8 @@
 # Storage (VERY IMPORTANT)
 backend/storage/
+uploads/
+*.db
+*.sqlite
 
 # Python
 venv/
