@@ -1,7 +1,10 @@
 import axios from "axios";
 
+// Use environment variable with fallback
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
 const api = axios.create({
-  baseURL: "http://localhost:8000",
+  baseURL: API_URL,
 });
 
 /* -------------------- UPLOAD API -------------------- */
@@ -11,7 +14,6 @@ export const uploadAPI = {
       headers: { "Content-Type": "multipart/form-data" },
     }),
 
-  // FIXED: Send repo_url as query parameter, not in body
   uploadGithub: (repoUrl, branch = "main") =>
     api.post(`/api/upload/github?repo_url=${encodeURIComponent(repoUrl)}&branch=${encodeURIComponent(branch)}`),
 
