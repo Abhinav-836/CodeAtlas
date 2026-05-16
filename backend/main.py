@@ -58,7 +58,7 @@ class Settings:
     # AI Features
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
     OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    LLM_MODEL = os.getenv("LLM_MODEL", "gpt-oss:20b-cloud")
+    LLM_MODEL = os.getenv("LLM_MODEL", "gpt-oss:120b-cloud")
     LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "60"))
     ENABLE_AI_SUMMARIES = os.getenv("ENABLE_AI_SUMMARIES", "true").lower() == "true"
     ENABLE_AI_README = os.getenv("ENABLE_AI_README", "true").lower() == "true"
