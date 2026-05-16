@@ -24,7 +24,7 @@ class Settings:
     # LLM Configuration - UPDATED for Ollama
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")  # 'ollama' or 'openai'
     OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    LLM_MODEL = os.getenv("LLM_MODEL", "gpt-oss:20b-cloud")  # or minimax-m2.5:cloud
+    LLM_MODEL = os.getenv("LLM_MODEL", "gpt-oss:120b-cloud")  # or minimax-m2.5:cloud
     LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "60"))
     
     # Legacy OpenAI (kept for compatibility)
