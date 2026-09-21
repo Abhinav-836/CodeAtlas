@@ -14,7 +14,11 @@ import traceback
 from app.services.ingestion.file_scanner import scan_files
 from app.services.analysis.metrics import code_metrics
 from app.services.analysis.architecture import infer_architecture
-from app.services.security.secrets_scanner import scan_secrets, summarize_findings as summarize_secrets
+from app.services.security.secrets_scanner import (
+    scan_secrets,
+    scan_secrets_git_history,
+    summarize_findings as summarize_secrets,
+)
 from app.services.security.vuln_patterns import scan_vulnerabilities, summarize_vulnerabilities
 from app.utils.ignore_matcher import IgnoreMatcher
 
@@ -99,13 +103,25 @@ def analyze_repo(repo_path: str, options: Optional[Dict[str, Any]] = None) -> Di
         # Security scanning
         print("🔒 Scanning for secrets...")
         secrets_found = scan_secrets(all_files)
+
+        # Also walk git history - a secret committed then later removed is
+        # still fully readable in old commits, so the working-tree scan
+        # above alone would miss it.
+        print("🕓 Scanning git history for secrets...")
+        history_secrets_found = scan_secrets_git_history(repo_path)
+        if history_secrets_found:
+            print(f"   found {len(history_secrets_found)} secret(s) in git history")
+
+        all_secrets_found = secrets_found + history_secrets_found
         result["security"] = {
-            "secrets_found": len(secrets_found),
-            "secrets": secrets_found[:20],  # Limit for response size
+            "secrets_found": len(all_secrets_found),
+            "secrets_found_working_tree": len(secrets_found),
+            "secrets_found_git_history": len(history_secrets_found),
+            "secrets": all_secrets_found[:20],  # Limit for response size
         }
         
         # Add secrets summary
-        secrets_summary = summarize_secrets(secrets_found)
+        secrets_summary = summarize_secrets(all_secrets_found)
         result["security"].update(secrets_summary)
         
         # Vulnerability scanning

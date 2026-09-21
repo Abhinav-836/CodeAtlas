@@ -3,6 +3,8 @@ Secret scanning for code repositories.
 """
 import re
 import os
+import math
+import subprocess
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -117,10 +119,11 @@ def _scan_file(file_path: str) -> List[Dict[str, Any]]:
     return findings
 
 
-def _scan_line(line: str, line_num: int, file_path: str) -> List[Dict[str, Any]]:
+def _scan_line(line: str, line_num: int, file_path: str, commit: str = None) -> List[Dict[str, Any]]:
     """Scan a single line for secrets."""
     findings = []
-    
+    matched_spans = []
+
     for pattern, secret_type in SECRET_PATTERNS:
         matches = re.finditer(pattern, line)
         
@@ -146,10 +149,50 @@ def _scan_line(line: str, line_num: int, file_path: str) -> List[Dict[str, Any]]
                 'context': line.strip()[:200],  # First 200 chars for context
                 'full_match': match.group(0),
             }
-            
+            if commit:
+                finding['commit'] = commit
+
             findings.append(finding)
-    
+            matched_spans.append(match.span())
+
+    # Supplementary pass: catch secrets that don't match a known key=value
+    # shape at all (bare tokens, unusual formats) via entropy instead.
+    for match in re.finditer(r"""['"]([A-Za-z0-9+/_\-]{20,})['"]""", line):
+        span = match.span(1)
+        # Skip if this text already overlaps a pattern-matched secret above
+        if any(span[0] >= s and span[1] <= e for s, e in matched_spans):
+            continue
+
+        candidate = match.group(1)
+        if _is_false_positive(candidate):
+            continue
+        if _shannon_entropy(candidate) < 4.3:
+            continue
+
+        risk_score = _calculate_risk_score('HIGH_ENTROPY_STRING', candidate)
+        finding = {
+            'file': file_path,
+            'line': line_num,
+            'type': 'HIGH_ENTROPY_STRING',
+            'value_preview': _mask_secret(candidate),
+            'risk_score': risk_score,
+            'risk_level': _get_risk_level(risk_score),
+            'context': line.strip()[:200],
+            'full_match': match.group(0),
+        }
+        if commit:
+            finding['commit'] = commit
+        findings.append(finding)
+
     return findings
+
+
+def _shannon_entropy(value: str) -> float:
+    """Higher = more random-looking. Real secrets tend to score above ~4.3."""
+    if not value:
+        return 0.0
+    probs = [value.count(c) / len(value) for c in set(value)]
+    return -sum(p * math.log2(p) for p in probs)
 
 
 def _should_skip_file(file_path: str) -> bool:
@@ -207,6 +250,7 @@ def _calculate_risk_score(secret_type: str, secret_value: str) -> int:
         'API_KEY': 15,
         'PASSWORD': 10,
         'DATABASE_URL': 15,
+        'HIGH_ENTROPY_STRING': 5,
     }
     
     score += type_weights.get(secret_type, 0)
@@ -252,6 +296,66 @@ def _mask_secret(secret: str) -> str:
         return f"{first_part}{'*' * mask_length}{last_part}"
     else:
         return f"{first_part}{'*' * (len(secret) - 4)}"
+
+
+def scan_secrets_git_history(repo_path: str, max_commits: int = 200) -> List[Dict[str, Any]]:
+    """
+    Walk git history for secrets that were committed and later removed.
+    A secret deleted in a later commit is still sitting in earlier commits
+    and is still fully reachable in `git log`/`git show`, so scanning only
+    the working tree (scan_secrets above) misses it entirely.
+
+    Returns findings shaped like scan_secrets(), with an extra 'commit' key
+    and file paths that are repo-relative (there's no on-disk file for an
+    old revision, so these can't be absolute paths like the live scan).
+    """
+    findings: List[Dict[str, Any]] = []
+    repo = Path(repo_path)
+
+    if not (repo / '.git').exists():
+        # Not a git repo (e.g. an uploaded zip) - nothing to walk.
+        return findings
+
+    try:
+        log = subprocess.run(
+            ['git', '-C', str(repo), 'log', f'-n{max_commits}', '--pretty=format:%H'],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return findings
+
+    commit_hashes = [c for c in log.stdout.splitlines() if c.strip()]
+
+    for commit_hash in commit_hashes:
+        try:
+            diff = subprocess.run(
+                ['git', '-C', str(repo), 'show', commit_hash, '--unified=0', '--', '.'],
+                capture_output=True, text=True, errors='ignore', timeout=30,
+            )
+        except (subprocess.SubprocessError, OSError):
+            continue
+
+        current_file = None
+        line_num = 0
+        for line in diff.stdout.splitlines():
+            if line.startswith('+++ b/'):
+                current_file = line[6:]
+                continue
+            if line.startswith('@@'):
+                # Hunk header looks like: @@ -a,b +c,d @@ ; c is the start line
+                match = re.search(r'\+(\d+)', line)
+                line_num = int(match.group(1)) if match else 0
+                continue
+            if not line.startswith('+') or line.startswith('+++'):
+                continue
+
+            content = line[1:]
+            findings.extend(
+                _scan_line(content, line_num, current_file or 'unknown', commit=commit_hash[:8])
+            )
+            line_num += 1
+
+    return findings
 
 
 def summarize_findings(findings: List[Dict[str, Any]]) -> Dict[str, Any]:
