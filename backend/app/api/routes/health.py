@@ -3,7 +3,13 @@ from datetime import datetime
 from typing import Dict, Any
 
 from fastapi import APIRouter, Depends
-import psutil  # Optional: for system metrics
+
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    psutil = None
+    PSUTIL_AVAILABLE = False
 
 router = APIRouter(prefix="/health", tags=["health"])
 
@@ -64,7 +70,8 @@ async def detailed_health_check() -> Dict[str, Any]:
         
         # Add detailed system metrics if psutil is available
         try:
-            import psutil
+            if not PSUTIL_AVAILABLE:
+                raise ImportError("psutil is not installed")
             system_info = _get_system_info()
             
             # Add process-specific info
@@ -148,7 +155,7 @@ async def liveness_probe() -> Dict[str, Any]:
 # Helper functions
 def _get_uptime() -> str:
     """Get formatted uptime string."""
-    uptime_seconds = time.time() - psutil.boot_time() if 'psutil' in globals() else 0
+    uptime_seconds = time.time() - psutil.boot_time() if PSUTIL_AVAILABLE else 0
     hours = int(uptime_seconds // 3600)
     minutes = int((uptime_seconds % 3600) // 60)
     seconds = int(uptime_seconds % 60)
@@ -157,7 +164,8 @@ def _get_uptime() -> str:
 
 def _get_system_info() -> Dict[str, Any]:
     """Get system information using psutil."""
-    import psutil
+    if not PSUTIL_AVAILABLE:
+        raise ImportError("psutil is not installed")
     
     # CPU information
     cpu_percent = psutil.cpu_percent(interval=0.1)

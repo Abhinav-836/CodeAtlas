@@ -9,3 +9,4 @@ jinja2
 sqlalchemy
 aiofiles
 python-multipart
+psutil

@@ -46,8 +46,8 @@ export const reportsAPI = {
     api.delete(`/api/reports/${reportId}`),
 
   searchReports: (query) =>
-    api.get(`/api/reports/search?q=${query}`),
+    api.get(`/api/reports/search?query=${query}`),
 
   exportReport: (reportId, format) =>
-    api.get(`/api/reports/${reportId}/export?format=${format}`),
+    api.post(`/api/reports/${reportId}/export?format=${format}`),
 };
