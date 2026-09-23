@@ -30,11 +30,26 @@ FALSE_POSITIVES = [
     r"password123", r"admin123", r"changeme",
 ]
 
-EXCLUDED_FILES = [
-    "package-lock.json", "yarn.lock",
-    ".min.js", ".min.css",
-    "*.pyc", "*.pyo",
-    ".git/", "node_modules/",
+# Paths we never scan. Minified bundles, vendored code, lockfiles, etc.
+EXCLUDED_PATH_SUBSTRINGS = [
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    ".min.js",
+    ".min.css",
+    ".umd.js",
+    ".bundle.js",
+    ".chunk.js",
+    ".pyc",
+    ".pyo",
+    "/.git/",
+    "/node_modules/",
+    "/dist/",
+    "/build/",
+    "/vendor/",
+    "/.venv/",
+    "/venv/",
+    "/__pycache__/",
 ]
 
 SCANNABLE_EXTENSIONS = {
@@ -110,7 +125,7 @@ def _scan_line(
             findings.append(finding)
             matched_spans.append(match.span())
 
-    # Supplementary pass: high-entropy quoted strings not caught above.
+    # Supplementary high-entropy pass
     for match in re.finditer(r"""['"]([A-Za-z0-9+/_\-]{20,})['"]""", line):
         span = match.span(1)
         if any(span[0] >= s and span[1] <= e for s, e in matched_spans):
@@ -148,12 +163,9 @@ def _shannon_entropy(value: str) -> float:
 
 
 def _should_skip_file(file_path: str) -> bool:
-    path_str = file_path.lower()
-    for pattern in EXCLUDED_FILES:
-        if pattern.endswith("/"):
-            if pattern[:-1] in path_str:
-                return True
-        elif pattern in path_str:
+    path_lower = file_path.lower().replace("\\", "/")
+    for substr in EXCLUDED_PATH_SUBSTRINGS:
+        if substr in path_lower:
             return True
 
     try:
@@ -225,7 +237,6 @@ def _mask_secret(secret: str) -> str:
 
 
 def scan_secrets_git_history(repo_path: str, max_commits: int = 200) -> List[Dict[str, Any]]:
-    """Walk git history for secrets that were committed and later removed."""
     findings: List[Dict[str, Any]] = []
     repo = Path(repo_path)
 
@@ -265,6 +276,10 @@ def scan_secrets_git_history(repo_path: str, max_commits: int = 200) -> List[Dic
                 continue
 
             content = line[1:]
+            if current_file and _should_skip_file(current_file):
+                line_num += 1
+                continue
+
             findings.extend(
                 _scan_line(content, line_num, current_file or "unknown", commit=commit_hash[:8])
             )
