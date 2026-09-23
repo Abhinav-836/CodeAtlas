@@ -1,55 +1,50 @@
 """
 LLM client abstraction for CodeAtlas with Ollama support.
-Handles sync, async, and streaming AI responses using local models.
+Handles sync, async, and streaming AI responses.
 """
 
 import asyncio
-import logging
 import json
+import logging
+import os
+from typing import Any, AsyncGenerator, Dict, List, Optional
+
 import aiohttp
 import requests
-from typing import Dict, Any, AsyncGenerator, Optional, List
+
 from app.core.config import settings
-import os
 
 logger = logging.getLogger(__name__)
 
 
 class LLMClient:
     """Ollama-based LLM client for CodeAtlas."""
-    
-    def __init__(self):
+
+    def __init__(self) -> None:
         self.base_url = settings.OLLAMA_BASE_URL or "http://localhost:11434"
-        self.model = settings.LLM_MODEL or "gpt-oss:20b-cloud"
+        self.model = settings.LLM_MODEL or "gpt-oss:120b-cloud"
         self.timeout = settings.LLM_TIMEOUT or 60
-        self.api_key = os.getenv("OLLAMA_API_KEY", "")
+        self.api_key = getattr(settings, "OLLAMA_API_KEY", "") or os.getenv("OLLAMA_API_KEY", "")
 
     def _headers(self) -> Dict[str, str]:
-        """Auth header for Ollama Cloud models. Empty/local Ollama doesn't
-        need it, but sending it unconditionally is harmless there too."""
+        """Auth header for Ollama Cloud. Local Ollama ignores it."""
         if self.api_key:
             return {"Authorization": f"Bearer {self.api_key}"}
         return {}
 
-    def _prepare_messages(self, prompt: str, system_message: Optional[str] = None) -> List[Dict[str, str]]:
-        """Prepare messages in Ollama format."""
-        messages = []
+    def _prepare_messages(
+        self, prompt: str, system_message: Optional[str] = None
+    ) -> List[Dict[str, str]]:
+        messages: List[Dict[str, str]] = []
         if system_message:
             messages.append({"role": "system", "content": system_message})
         messages.append({"role": "user", "content": prompt})
         return messages
-    
+
+    # ── Synchronous ────────────────────────────────────────────────
     def call(self, prompt: str, **kwargs) -> str:
-        """
-        Synchronous LLM call.
-        Used for quick responses like README generation.
-        """
         try:
-            messages = self._prepare_messages(
-                prompt, 
-                kwargs.get("system_message")
-            )
-            
+            messages = self._prepare_messages(prompt, kwargs.get("system_message"))
             response = requests.post(
                 f"{self.base_url}/api/chat",
                 headers=self._headers(),
@@ -60,36 +55,26 @@ class LLMClient:
                     "options": {
                         "temperature": kwargs.get("temperature", 0.3),
                         "num_predict": kwargs.get("max_tokens", 800),
-                    }
+                    },
                 },
-                timeout=self.timeout
+                timeout=self.timeout,
             )
-            
             if response.status_code == 200:
                 data = response.json()
                 return data.get("message", {}).get("content", "")
-            else:
-                logger.error(f"Ollama error: {response.status_code} - {response.text}")
-                return self._get_fallback_response(prompt)
-                
+            logger.error("Ollama error: %s - %s", response.status_code, response.text)
+            return self._get_fallback_response(prompt)
         except requests.exceptions.ConnectionError:
             logger.error("Cannot connect to Ollama. Is it running?")
             return self._get_fallback_response(prompt)
         except Exception as e:
-            logger.error(f"LLM call failed: {e}")
+            logger.error("LLM call failed: %s", e)
             return self._get_fallback_response(prompt)
-    
+
+    # ── Async ──────────────────────────────────────────────────────
     async def call_async(self, prompt: str, **kwargs) -> Dict[str, Any]:
-        """
-        Async LLM call.
-        Used for AI summaries and heavy analysis.
-        """
         try:
-            messages = self._prepare_messages(
-                prompt,
-                kwargs.get("system_message")
-            )
-            
+            messages = self._prepare_messages(prompt, kwargs.get("system_message"))
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     f"{self.base_url}/api/chat",
@@ -101,54 +86,47 @@ class LLMClient:
                         "options": {
                             "temperature": kwargs.get("temperature", 0.3),
                             "num_predict": kwargs.get("max_tokens", 800),
-                        }
+                        },
                     },
-                    timeout=aiohttp.ClientTimeout(total=self.timeout)
+                    timeout=aiohttp.ClientTimeout(total=self.timeout),
                 ) as response:
-                    
                     if response.status == 200:
                         data = await response.json()
                         content = data.get("message", {}).get("content", "")
-                        return {
-                            "success": True,
-                            "content": content,
-                            "model": self.model
-                        }
-                    else:
-                        error_text = await response.text()
-                        logger.error(f"Ollama error: {response.status} - {error_text}")
-                        return {
-                            "success": False,
-                            "error": f"Ollama error: {response.status}",
-                            "content": self._get_fallback_response(prompt)
-                        }
-                        
+                        return {"success": True, "content": content, "model": self.model}
+                    error_text = await response.text()
+                    logger.error("Ollama error: %s - %s", response.status, error_text)
+                    return {
+                        "success": False,
+                        "error": f"Ollama error: {response.status}",
+                        "content": self._get_fallback_response(prompt),
+                    }
         except aiohttp.ClientConnectorError:
             logger.error("Cannot connect to Ollama. Is it running?")
             return {
                 "success": False,
                 "error": "Ollama not reachable",
-                "content": self._get_fallback_response(prompt)
+                "content": self._get_fallback_response(prompt),
             }
         except Exception as e:
-            logger.error(f"Async LLM call failed: {e}")
+            logger.error("Async LLM call failed: %s", e)
             return {
                 "success": False,
                 "error": str(e),
-                "content": self._get_fallback_response(prompt)
+                "content": self._get_fallback_response(prompt),
             }
-    
+
+    # ── Streaming ──────────────────────────────────────────────────
     async def stream(self, prompt: str, **kwargs) -> AsyncGenerator[str, None]:
         """
         Stream LLM response token-by-token.
-        Useful for UI streaming.
+
+        Ollama's /api/chat with stream=true emits one JSON object per line,
+        so we buffer raw bytes and split on newlines ourselves rather than
+        relying on aiohttp's line iteration (which yields nothing here).
         """
         try:
-            messages = self._prepare_messages(
-                prompt,
-                kwargs.get("system_message")
-            )
-            
+            messages = self._prepare_messages(prompt, kwargs.get("system_message"))
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     f"{self.base_url}/api/chat",
@@ -160,58 +138,76 @@ class LLMClient:
                         "options": {
                             "temperature": kwargs.get("temperature", 0.3),
                             "num_predict": kwargs.get("max_tokens", 800),
-                        }
+                        },
                     },
-                    timeout=aiohttp.ClientTimeout(total=self.timeout)
+                    timeout=aiohttp.ClientTimeout(total=self.timeout),
                 ) as response:
-                    
-                    async for line in response.content:
-                        if line:
-                            try:
-                                data = json.loads(line)
-                                if "message" in data:
-                                    content = data["message"].get("content", "")
-                                    if content:
-                                        yield content
-                                if data.get("done"):
-                                    break
-                            except json.JSONDecodeError:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logger.error("Ollama stream error: %s - %s", response.status, error_text)
+                        return
+
+                    buffer = b""
+                    async for chunk in response.content.iter_chunked(512):
+                        buffer += chunk
+                        while b"\n" in buffer:
+                            line, buffer = buffer.split(b"\n", 1)
+                            line = line.strip()
+                            if not line:
                                 continue
-                                
+                            try:
+                                data = json.loads(line.decode("utf-8"))
+                            except (json.JSONDecodeError, UnicodeDecodeError):
+                                continue
+
+                            content = data.get("message", {}).get("content", "")
+                            if content:
+                                yield content
+                            if data.get("done"):
+                                return
+
+                    # Flush any trailing partial line
+                    if buffer.strip():
+                        try:
+                            data = json.loads(buffer.decode("utf-8"))
+                            content = data.get("message", {}).get("content", "")
+                            if content:
+                                yield content
+                        except (json.JSONDecodeError, UnicodeDecodeError):
+                            pass
+
         except Exception as e:
-            logger.error(f"LLM streaming failed: {e}")
-            yield ""
-    
+            logger.error("LLM streaming failed: %s", e)
+            return
+
+    # ── Fallback ───────────────────────────────────────────────────
     def _get_fallback_response(self, prompt: str) -> str:
-        """Provide fallback responses when LLM is unavailable."""
         prompt_lower = prompt.lower()
-        
         if "readme" in prompt_lower:
-            return "# Project\n\nGenerated by CodeAtlas (AI unavailable). Please install Ollama for AI-powered documentation."
-        elif "summary" in prompt_lower or "analyze" in prompt_lower:
-            return "AI analysis unavailable. Please ensure Ollama is running with the gpt-oss model."
-        elif "security" in prompt_lower:
+            return (
+                "# Project\n\nGenerated by CodeAtlas (AI unavailable). "
+                "Please install Ollama for AI-powered documentation."
+            )
+        if "summary" in prompt_lower or "analyze" in prompt_lower:
+            return "AI analysis unavailable. Please ensure Ollama is running with the configured model."
+        if "security" in prompt_lower:
             return "Security analysis unavailable. Please check the raw security findings in the report."
-        else:
-            return "AI response unavailable. Please check Ollama connection."
+        return "AI response unavailable. Please check Ollama connection."
 
 
-# Global LLM client instance
+# Global instance
 llm_client = LLMClient()
 
 
-# Legacy function wrappers for backward compatibility
+# Legacy wrappers
 def call_llm(prompt: str, **kwargs) -> str:
-    """Legacy wrapper for sync calls."""
     return llm_client.call(prompt, **kwargs)
 
 
 async def call_llm_async(prompt: str, **kwargs) -> Dict[str, Any]:
-    """Legacy wrapper for async calls."""
     return await llm_client.call_async(prompt, **kwargs)
 
 
 async def stream_llm_response(prompt: str) -> AsyncGenerator[str, None]:
-    """Legacy wrapper for streaming."""
     async for chunk in llm_client.stream(prompt):
         yield chunk

@@ -1,6 +1,22 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { analyzeAPI } from "../utils/apiClient";
 
+const PROGRESS_MAP = {
+  idle: 0,
+  queued: 10,
+  pending: 15,
+  running: 45,
+  processing: 30,
+  extracting: 25,
+  scanning: 50,
+  analyzing: 60,
+  generating_report: 80,
+  completed: 100,
+  failed: 0,
+  timeout: 0,
+  cancelled: 0,
+};
+
 export function useAnalysis(taskId) {
   const [status, setStatus] = useState("idle");
   const [progress, setProgress] = useState(0);
@@ -10,81 +26,66 @@ export function useAnalysis(taskId) {
 
   const pollingRef = useRef(null);
   const hasFetchedResults = useRef(false);
+  const isMountedRef = useRef(true);
 
-  // Calculate progress based on status
-  const getProgressFromStatus = (status) => {
-    const progressMap = {
-      'queued': 10,
-      'pending': 15,
-      'processing': 30,
-      'extracting': 25,
-      'scanning': 50,
-      'analyzing': 60,
-      'generating_report': 80,
-      'running': 45,
-      'completed': 100,
-      'failed': 0,
-      'timeout': 0,
-      'cancelled': 0
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
     };
-    return progressMap[status] || 0;
-  };
+  }, []);
 
-  const fetchStatus = useCallback(async () => {
-    if (!taskId) return;
-
-    try {
-      setLoading(true);
-      const response = await analyzeAPI.getStatus(taskId);
-      const data = response.data;
-      
-      console.log("Status update:", data); // Debug log
-      
-      setStatus(data.status);
-      setProgress(getProgressFromStatus(data.status));
-
-      if (data.status === "completed" && !hasFetchedResults.current) {
-        // Clear polling when completed
-        if (pollingRef.current) {
-          clearInterval(pollingRef.current);
-          pollingRef.current = null;
-        }
-        // Fetch results
-        await fetchResults();
-      } else if (data.status === "failed") {
-        if (pollingRef.current) {
-          clearInterval(pollingRef.current);
-          pollingRef.current = null;
-        }
-        setError(data.error || "Analysis failed");
-      }
-    } catch (err) {
-      console.error("Status fetch error:", err);
-      // Don't clear polling on error, just log it
-      setError(err.response?.data?.detail || "Failed to fetch analysis status");
-    } finally {
-      setLoading(false);
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
     }
-  }, [taskId]);
+  }, []);
 
   const fetchResults = useCallback(async () => {
     if (!taskId || hasFetchedResults.current) return;
-  
     try {
-      console.log("Fetching results for task:", taskId);
-      // ✅ Request AI insights by passing true
       const response = await analyzeAPI.getResults(taskId, true);
-      console.log("Results received:", response.data);
+      if (!isMountedRef.current) return;
       setResults(response.data);
       hasFetchedResults.current = true;
       setProgress(100);
     } catch (err) {
-      console.error("Results fetch error:", err);
+      if (!isMountedRef.current) return;
       setError(err.response?.data?.detail || "Failed to fetch results");
     }
   }, [taskId]);
 
-  // Start polling when taskId changes
+  const fetchStatus = useCallback(async () => {
+    if (!taskId) return;
+    try {
+      setLoading(true);
+      const response = await analyzeAPI.getStatus(taskId);
+      if (!isMountedRef.current) return;
+
+      const data = response.data;
+      setStatus(data.status);
+      setProgress(PROGRESS_MAP[data.status] ?? 0);
+
+      if (data.status === "completed" && !hasFetchedResults.current) {
+        stopPolling();
+        await fetchResults();
+      } else if (
+        data.status === "failed" ||
+        data.status === "timeout" ||
+        data.status === "cancelled"
+      ) {
+        stopPolling();
+        setError(data.error || `Analysis ${data.status}`);
+      }
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      setError(err.response?.data?.detail || "Failed to fetch analysis status");
+    } finally {
+      if (isMountedRef.current) setLoading(false);
+    }
+  }, [taskId, fetchResults, stopPolling]);
+
   useEffect(() => {
     if (!taskId) {
       setStatus("idle");
@@ -95,30 +96,14 @@ export function useAnalysis(taskId) {
       return;
     }
 
-    console.log("Starting analysis for task:", taskId);
-    
-    // Initial fetch
+    hasFetchedResults.current = false;
     fetchStatus();
+    pollingRef.current = setInterval(fetchStatus, 2000);
 
-    // Set up polling
-    pollingRef.current = setInterval(() => {
-      fetchStatus();
-    }, 2000);
-
-    // Cleanup on unmount or taskId change
     return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-      }
+      stopPolling();
     };
-  }, [taskId, fetchStatus]);
+  }, [taskId, fetchStatus, stopPolling]);
 
-  return {
-    status,
-    progress,
-    results,
-    error,
-    loading,
-  };
+  return { status, progress, results, error, loading };
 }

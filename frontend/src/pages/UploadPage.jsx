@@ -20,7 +20,6 @@ export default function UploadPage() {
     setLoading(true);
 
     try {
-      let uploadResponse;
       let extractedPath;
 
       if (uploadType === "zip") {
@@ -31,7 +30,7 @@ export default function UploadPage() {
         }
         const formData = new FormData();
         formData.append("file", file);
-        uploadResponse = await uploadAPI.uploadZip(formData);
+        const uploadResponse = await uploadAPI.uploadZip(formData);
         extractedPath = uploadResponse.data.extracted_to;
       } else {
         if (!githubUrl.trim()) {
@@ -39,38 +38,20 @@ export default function UploadPage() {
           setLoading(false);
           return;
         }
-        
-        console.log("Uploading GitHub URL:", githubUrl);
-        
-        // FIXED: Send the URL directly - backend handles all formats
-        uploadResponse = await uploadAPI.uploadGithub(githubUrl, "main");
-        
+        // No forced branch - backend auto-detects.
+        const uploadResponse = await uploadAPI.uploadGithub(githubUrl);
         extractedPath = uploadResponse.data.local_path;
-        console.log("GitHub upload response:", uploadResponse.data);
       }
 
-      console.log("Upload successful, path:", extractedPath);
       showToast("Upload successful! Starting analysis...", "success");
-      
       const analysisResponse = await analyzeAPI.startAnalysis(extractedPath);
       const taskId = analysisResponse.data.task_id;
-      
-      console.log("Analysis started with task ID:", taskId);
       showToast("Analysis started successfully!", "success");
-      
       navigate(`/results/${taskId}`);
-
     } catch (err) {
       console.error("Upload error:", err);
-      
-      // Better error message
-      let errorMessage = "Upload failed";
-      if (err?.response?.data?.detail) {
-        errorMessage = err.response.data.detail;
-      } else if (err.message) {
-        errorMessage = err.message;
-      }
-      
+      const errorMessage =
+        err?.response?.data?.detail || err.message || "Upload failed";
       setError(errorMessage);
       showToast(errorMessage, "error");
     } finally {
@@ -78,15 +59,11 @@ export default function UploadPage() {
     }
   };
 
-  // Drag and drop handlers
   const handleDrag = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true);
-    } else if (e.type === "dragleave") {
-      setDragActive(false);
-    }
+    if (e.type === "dragenter" || e.type === "dragover") setDragActive(true);
+    else if (e.type === "dragleave") setDragActive(false);
   };
 
   const handleDrop = (e) => {
@@ -99,36 +76,32 @@ export default function UploadPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-800 py-12">
-      {/* Animated background elements */}
-      <div className="absolute inset-0 overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-800 py-12 relative overflow-hidden">
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob"></div>
         <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-pink-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
         <div className="absolute top-40 left-40 w-80 h-80 bg-indigo-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-4000"></div>
       </div>
 
       <div className="container mx-auto px-4 relative z-10">
-        {/* Header Section with Stats */}
         <div className="text-center mb-12">
           <div className="inline-flex items-center justify-center p-2 bg-white/10 backdrop-blur-lg rounded-full mb-6">
             <span className="px-4 py-2 text-sm font-medium text-white">
               🚀 AI-Powered Code Analysis
             </span>
           </div>
-          
           <h1 className="text-5xl md:text-6xl font-bold text-white mb-4">
-            Upload Your{' '}
+            Upload Your{" "}
             <span className="bg-gradient-to-r from-yellow-400 to-pink-400 text-transparent bg-clip-text">
               Repository
             </span>
           </h1>
-          
           <p className="text-xl text-white/80 max-w-2xl mx-auto">
-            Get instant AI-powered insights about your code's security, complexity, and architecture
+            Get instant AI-powered insights about your code's security,
+            complexity, and architecture
           </p>
         </div>
 
-        {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-3xl mx-auto mb-12">
           <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 text-center transform hover:scale-105 transition-transform">
             <div className="text-4xl mb-3">🔍</div>
@@ -147,10 +120,8 @@ export default function UploadPage() {
           </div>
         </div>
 
-        {/* Main Upload Card */}
         <Card className="max-w-2xl mx-auto bg-white/95 backdrop-blur-xl border-0 shadow-2xl">
           <div className="p-8">
-            {/* Toggle Buttons */}
             <div className="flex gap-3 mb-8 p-1.5 bg-gray-100 dark:bg-gray-800 rounded-2xl">
               <button
                 onClick={() => setUploadType("zip")}
@@ -180,7 +151,6 @@ export default function UploadPage() {
               </button>
             </div>
 
-            {/* Upload Area */}
             {uploadType === "zip" ? (
               <div
                 className={`relative border-3 border-dashed rounded-2xl p-10 transition-all ${
@@ -200,12 +170,10 @@ export default function UploadPage() {
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   id="file-upload"
                 />
-                
                 <div className="text-center">
                   <div className="text-7xl mb-4 animate-bounce">
                     {file ? "📄" : "📦"}
                   </div>
-                  
                   {file ? (
                     <div className="space-y-3">
                       <p className="text-xl font-semibold text-indigo-600 dark:text-indigo-400">
@@ -256,17 +224,13 @@ export default function UploadPage() {
                     }`}
                   />
                 </div>
-                
                 <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
                   <span>Any GitHub URL format works!</span>
                 </div>
-                
-                {/* Example URLs */}
                 <div className="text-xs text-gray-400 space-y-1">
-                  <p className="font-medium text-gray-500 dark:text-gray-400">Examples that work:</p>
+                  <p className="font-medium text-gray-500 dark:text-gray-400">
+                    Examples that work:
+                  </p>
                   <p className="font-mono">https://github.com/username/repo</p>
                   <p className="font-mono">https://github.com/username/repo.git</p>
                   <p className="font-mono">git@github.com:username/repo.git</p>
@@ -275,7 +239,6 @@ export default function UploadPage() {
               </div>
             )}
 
-            {/* Error Message */}
             {error && (
               <div className="mt-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl animate-shake">
                 <p className="text-red-600 dark:text-red-400 flex items-center gap-2">
@@ -285,7 +248,6 @@ export default function UploadPage() {
               </div>
             )}
 
-            {/* Action Buttons */}
             <div className="mt-8 space-y-3">
               <Button
                 onClick={handleUpload}
@@ -295,31 +257,45 @@ export default function UploadPage() {
               >
                 {loading ? (
                   <span className="flex items-center justify-center gap-3">
-                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    <svg
+                      className="animate-spin h-5 w-5"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                        fill="none"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      />
                     </svg>
                     <span>Processing...</span>
                   </span>
                 ) : (
                   <span className="flex items-center justify-center gap-3">
                     <span>🚀</span>
-                    <span>{uploadType === "zip" ? "Upload & Analyze" : "Analyze Repository"}</span>
+                    <span>
+                      {uploadType === "zip"
+                        ? "Upload & Analyze"
+                        : "Analyze Repository"}
+                    </span>
                   </span>
                 )}
               </Button>
-
               <p className="text-center text-sm text-gray-500 dark:text-gray-400">
-                By uploading, you agree to our{' '}
-                <a href="#" className="text-indigo-600 dark:text-indigo-400 hover:underline">
-                  Terms of Service
-                </a>
+                By uploading, you agree to our Terms of Service
               </p>
             </div>
           </div>
         </Card>
 
-        {/* Features Preview */}
         <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-6 max-w-3xl mx-auto">
           <div className="text-center">
             <div className="text-3xl mb-2">🔒</div>
@@ -339,36 +315,6 @@ export default function UploadPage() {
           </div>
         </div>
       </div>
-
-      {/* Add custom animations */}
-      <style jsx>{`
-        @keyframes blob {
-          0% { transform: translate(0px, 0px) scale(1); }
-          33% { transform: translate(30px, -50px) scale(1.1); }
-          66% { transform: translate(-20px, 20px) scale(0.9); }
-          100% { transform: translate(0px, 0px) scale(1); }
-        }
-        .animate-blob {
-          animation: blob 7s infinite;
-        }
-        .animation-delay-2000 {
-          animation-delay: 2s;
-        }
-        .animation-delay-4000 {
-          animation-delay: 4s;
-        }
-        @keyframes shake {
-          0%, 100% { transform: translateX(0); }
-          10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
-          20%, 40%, 60%, 80% { transform: translateX(5px); }
-        }
-        .animate-shake {
-          animation: shake 0.5s ease-in-out;
-        }
-        .scale-102 {
-          transform: scale(1.02);
-        }
-      `}</style>
     </div>
   );
 }

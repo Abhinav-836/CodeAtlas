@@ -12,27 +12,18 @@ export function useUpload() {
     setProgress(0);
 
     try {
-      // Simulate upload progress
       const progressInterval = setInterval(() => {
-        setProgress((prev) => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            return prev;
-          }
-          return prev + 10;
-        });
+        setProgress((prev) => (prev >= 90 ? prev : prev + 10));
       }, 300);
 
       const formData = new FormData();
       formData.append("file", file);
 
       const uploadResponse = await uploadAPI.uploadZip(formData);
-
       clearInterval(progressInterval);
       setProgress(100);
 
-      // Backend returns "extracted_to", not "path" - using the wrong field
-      // name here silently sends `undefined` to startAnalysis().
+      // Backend returns "extracted_to" for ZIP uploads.
       return uploadResponse.data.extracted_to;
     } catch (err) {
       setError(err?.message || "Upload failed");
@@ -42,14 +33,12 @@ export function useUpload() {
     }
   };
 
-  const uploadFromGithub = async (url) => {
+  const uploadFromGithub = async (url, branch = null) => {
     setLoading(true);
     setError(null);
-
     try {
-      // ✅ Fixed: send repoUrl directly (not as object)
-      const response = await uploadAPI.uploadGithub(url);
-      // Backend returns "local_path", not "path".
+      // Let the backend auto-detect the branch if none is given.
+      const response = await uploadAPI.uploadGithub(url, branch);
       return response.data.local_path;
     } catch (err) {
       setError(err?.message || "GitHub upload failed");
@@ -59,11 +48,9 @@ export function useUpload() {
     }
   };
 
-  // ✅ Fixed: use analyzeAPI.startAnalysis (which encodes path)
   const startAnalysis = async (path) => {
     setLoading(true);
     setError(null);
-
     try {
       const response = await analyzeAPI.startAnalysis(path);
       return response.data.task_id;

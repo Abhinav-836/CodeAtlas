@@ -1,12 +1,38 @@
-fastapi
-uvicorn
-pydantic
-python-dotenv
-gitpython
-networkx
-rich
-jinja2
-sqlalchemy
-aiofiles
-python-multipart
-psutil
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+pydantic-settings>=2.0.0
+python-dotenv>=1.0.0
+
+# Async DB
+sqlalchemy>=2.0.0
+aiosqlite>=0.19.0
+
+# AI / LLM
+aiohttp>=3.9.0
+requests>=2.31.0
+
+# Uploads / file handling
+aiofiles>=23.2.0
+python-multipart>=0.0.6
+
+# Git
+gitpython>=3.1.40
+
+# Graph analysis
+networkx>=3.0
+
+# Templating & config
+jinja2>=3.1.2
+pyyaml>=6.0
+toml>=0.10.0
+
+# CLI
+click>=8.1.0
+rich>=13.0.0
+
+# System metrics
+psutil>=5.9.0
+
+# PDF export (optional but present in code paths)
+reportlab>=4.0.0
