@@ -7,9 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 
-from app.api.dependencies import get_api_key
 from app.core.config import settings
 from app.services.export.json import save_json_report
 from app.workers.analyze_task import analyze_repo
@@ -18,7 +17,7 @@ from app.workers.task_queue import task_queue
 router = APIRouter(prefix="/analyze")
 
 
-@router.post("", response_model=Dict[str, Any], dependencies=[Depends(get_api_key)])
+@router.post("", response_model=Dict[str, Any])
 async def analyze_repository(
     path: str,
     background_tasks: BackgroundTasks,
@@ -30,7 +29,9 @@ async def analyze_repository(
         if not repo_path.exists():
             raise HTTPException(status_code=400, detail=f"Path does not exist: {path}")
         if not repo_path.is_dir():
-            raise HTTPException(status_code=400, detail=f"Path is not a directory: {path}")
+            raise HTTPException(
+                status_code=400, detail=f"Path is not a directory: {path}"
+            )
 
         analysis_id = str(uuid.uuid4())
 
@@ -80,10 +81,14 @@ async def analyze_repository(
         raise
     except Exception as e:
         print(f"❌ Error starting analysis: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to start analysis: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to start analysis: {str(e)}"
+        )
 
 
-def _run_analysis_with_options(path: str, options: Dict[str, Any], analysis_id: str) -> Dict[str, Any]:
+def _run_analysis_with_options(
+    path: str, options: Dict[str, Any], analysis_id: str
+) -> Dict[str, Any]:
     try:
         print(f"🏃 Running analysis {analysis_id} for path: {path}")
         result = analyze_repo(path)
@@ -107,7 +112,9 @@ def _run_analysis_with_options(path: str, options: Dict[str, Any], analysis_id: 
                 report_id = save_json_report(result)
                 result["report_id"] = report_id
                 result["report_url"] = f"/api/reports/{report_id}"
-                print(f"✅ Analysis {analysis_id} completed with report_id: {report_id}")
+                print(
+                    f"✅ Analysis {analysis_id} completed with report_id: {report_id}"
+                )
             else:
                 print(f"⚠️ Analysis {analysis_id} status is not 'completed'")
         except Exception as e:
@@ -144,16 +151,20 @@ async def get_analysis_status(task_id: str) -> Dict[str, Any]:
             "progress": status.get("progress", 0),
         }
         if analysis_info:
-            response.update({
-                "analysis_id": analysis_info.get("analysis_id"),
-                "path": analysis_info.get("path"),
-                "options": analysis_info.get("options"),
-            })
+            response.update(
+                {
+                    "analysis_id": analysis_info.get("analysis_id"),
+                    "path": analysis_info.get("path"),
+                    "options": analysis_info.get("options"),
+                }
+            )
         return response
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get status: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get status: {str(e)}"
+        )
 
 
 @router.get("/results/{task_id}")
@@ -167,15 +178,21 @@ async def get_analysis_results(
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
 
         if status.get("status") == "running":
-            raise HTTPException(status_code=425, detail=f"Analysis task {task_id} is still processing")
+            raise HTTPException(
+                status_code=425,
+                detail=f"Analysis task {task_id} is still processing",
+            )
 
         result = await task_queue.get_result(task_id, timeout=30)
         if result is None:
-            raise HTTPException(status_code=404, detail=f"No results found for task {task_id}")
+            raise HTTPException(
+                status_code=404, detail=f"No results found for task {task_id}"
+            )
 
         if include_ai:
             try:
                 from app.services.ai.analyze_ai import enhance_with_ai
+
                 if settings.ENABLE_AI_INSIGHTS:
                     result = await enhance_with_ai(result)
             except ImportError as e:
@@ -195,11 +212,15 @@ async def get_analysis_results(
         result["retrieved_at"] = datetime.now().isoformat()
         return result
     except TimeoutError:
-        raise HTTPException(status_code=408, detail=f"Timeout waiting for results of task {task_id}")
+        raise HTTPException(
+            status_code=408, detail=f"Timeout waiting for results of task {task_id}"
+        )
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get results: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get results: {str(e)}"
+        )
 
 
 @router.get("/queue/stats")
@@ -219,11 +240,15 @@ async def get_queue_stats() -> Dict[str, Any]:
             "active_workers": min(running, getattr(task_queue, "max_workers", 0)),
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get queue stats: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get queue stats: {str(e)}"
+        )
 
 
 @router.get("/recent")
-async def get_recent_analyses(limit: int = Query(10, ge=1, le=100)) -> Dict[str, Any]:
+async def get_recent_analyses(
+    limit: int = Query(10, ge=1, le=100),
+) -> Dict[str, Any]:
     try:
         tasks = task_queue.list_tasks()
         recent_tasks = []
@@ -244,10 +269,12 @@ async def get_recent_analyses(limit: int = Query(10, ge=1, le=100)) -> Dict[str,
                 "function": task.get("function", "unknown"),
             }
             if analysis_info:
-                recent_task.update({
-                    "analysis_id": analysis_info.get("analysis_id"),
-                    "path": analysis_info.get("path"),
-                })
+                recent_task.update(
+                    {
+                        "analysis_id": analysis_info.get("analysis_id"),
+                        "path": analysis_info.get("path"),
+                    }
+                )
             if task.get("status") == "completed":
                 try:
                     result = await task_queue.get_result(task_id, timeout=1)
@@ -260,7 +287,9 @@ async def get_recent_analyses(limit: int = Query(10, ge=1, le=100)) -> Dict[str,
 
         return {"analyses": recent_tasks, "total": len(recent_tasks), "limit": limit}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get recent analyses: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get recent analyses: {str(e)}"
+        )
 
 
 # ── In-memory analysis metadata store ─────────────────────────────
@@ -290,9 +319,11 @@ def _estimate_analysis_time(repo_path: Path, options: Dict[str, Any]) -> int:
     try:
         file_count = 0
         for root, dirs, files in os.walk(repo_path):
-            dirs[:] = [d for d in dirs if d not in {
-                ".git", "__pycache__", "node_modules", "venv", ".venv",
-            }]
+            dirs[:] = [
+                d
+                for d in dirs
+                if d not in {".git", "__pycache__", "node_modules", "venv", ".venv"}
+            ]
             file_count += len(files)
 
         base_time_per_file = 0.1

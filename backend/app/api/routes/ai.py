@@ -5,9 +5,8 @@ import asyncio
 import json
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
-from app.api.dependencies import get_api_key
 from app.core.config import settings
 from app.services.ai.llm_client import llm_client
 from app.services.ai.summarizer import explain_complex_file
@@ -15,20 +14,16 @@ from app.services.ai.summarizer import explain_complex_file
 router = APIRouter(prefix="/ai", tags=["ai"])
 
 
-@router.post("/explain", dependencies=[Depends(get_api_key)])
+@router.post("/explain")
 async def ai_explain(
     file_path: str,
     code: str,
     language: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """
-    Explain a code file using AI.
-    """
     if not settings.ENABLE_AI_INSIGHTS:
         raise HTTPException(status_code=503, detail="AI insights are disabled")
 
     try:
-        # explain_complex_file is sync (uses the sync call_llm wrapper).
         explanation = await asyncio.to_thread(explain_complex_file, file_path, code)
         return {
             "success": True,
@@ -37,10 +32,12 @@ async def ai_explain(
             "model_used": llm_client.model,
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI explanation failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"AI explanation failed: {str(e)}"
+        )
 
 
-@router.post("/ask", dependencies=[Depends(get_api_key)])
+@router.post("/ask")
 async def ai_ask(
     question: str,
     context: Optional[str] = None,
@@ -78,11 +75,12 @@ async def ai_ask(
 
 @router.websocket("/chat")
 async def ai_chat(websocket: WebSocket):
-    """WebSocket for interactive AI chat with streaming."""
     await websocket.accept()
 
     if not settings.ENABLE_AI_INSIGHTS:
-        await websocket.send_json({"error": "AI insights are disabled", "type": "error"})
+        await websocket.send_json(
+            {"error": "AI insights are disabled", "type": "error"}
+        )
         await websocket.close()
         return
 
@@ -94,10 +92,9 @@ async def ai_chat(websocket: WebSocket):
             question = message.get("question", "")
             context = message.get("context", "")
 
-            await websocket.send_json({
-                "type": "ack",
-                "message": "Processing your question...",
-            })
+            await websocket.send_json(
+                {"type": "ack", "message": "Processing your question..."}
+            )
 
             prompt = f"Question: {question}\n\n"
             if context:
@@ -109,10 +106,9 @@ async def ai_chat(websocket: WebSocket):
             ):
                 await websocket.send_json({"type": "chunk", "content": chunk})
 
-            await websocket.send_json({
-                "type": "complete",
-                "message": "Response complete",
-            })
+            await websocket.send_json(
+                {"type": "complete", "message": "Response complete"}
+            )
 
     except WebSocketDisconnect:
         print("AI chat WebSocket disconnected")
@@ -132,7 +128,7 @@ async def list_models() -> Dict[str, Any]:
             async with session.get(f"{llm_client.base_url}/api/tags") as response:
                 if response.status == 200:
                     data = await response.json()
-                    models = [model["name"] for model in data.get("models", [])]
+                    models = [m["name"] for m in data.get("models", [])]
                     return {
                         "success": True,
                         "models": models,
@@ -148,7 +144,7 @@ async def list_models() -> Dict[str, Any]:
         return {"success": False, "error": str(e), "current_model": llm_client.model}
 
 
-@router.post("/models/switch", dependencies=[Depends(get_api_key)])
+@router.post("/models/switch")
 async def switch_model(model_name: str) -> Dict[str, Any]:
     try:
         import aiohttp
@@ -157,7 +153,7 @@ async def switch_model(model_name: str) -> Dict[str, Any]:
             async with session.get(f"{llm_client.base_url}/api/tags") as response:
                 if response.status == 200:
                     data = await response.json()
-                    models = [model["name"] for model in data.get("models", [])]
+                    models = [m["name"] for m in data.get("models", [])]
                     if model_name in models:
                         llm_client.model = model_name
                         return {
@@ -180,16 +176,19 @@ async def ai_status() -> Dict[str, Any]:
     try:
         import aiohttp
 
+        features = {
+            "summaries": settings.ENABLE_AI_SUMMARIES,
+            "readme": settings.ENABLE_AI_README,
+            "insights": settings.ENABLE_AI_INSIGHTS,
+        }
+
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{llm_client.base_url}/api/tags", timeout=2) as response:
-                features = {
-                    "summaries": settings.ENABLE_AI_SUMMARIES,
-                    "readme": settings.ENABLE_AI_README,
-                    "insights": settings.ENABLE_AI_INSIGHTS,
-                }
+            async with session.get(
+                f"{llm_client.base_url}/api/tags", timeout=2
+            ) as response:
                 if response.status == 200:
                     data = await response.json()
-                    models = [model["name"] for model in data.get("models", [])]
+                    models = [m["name"] for m in data.get("models", [])]
                     return {
                         "status": "healthy",
                         "ollama_connected": True,

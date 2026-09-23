@@ -8,9 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from app.api.dependencies import get_api_key
 from app.services.ingestion.zip_loader import extract_zip
 
 router = APIRouter(prefix="/upload", tags=["upload"])
@@ -24,7 +23,7 @@ ALLOWED_MIME_TYPES = {
 }
 
 
-@router.post("/zip", dependencies=[Depends(get_api_key)])
+@router.post("/zip")
 async def upload_zip(file: UploadFile = File(...)) -> Dict[str, Any]:
     try:
         await _validate_upload_file(file)
@@ -59,18 +58,21 @@ async def _validate_upload_file(file: UploadFile) -> None:
     file_ext = Path(file.filename).suffix.lower()
     if file_ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
-            400, detail=f"File type '{file_ext}' not allowed. Only ZIP files are supported."
+            400,
+            detail=f"File type '{file_ext}' not allowed. Only ZIP files are supported.",
         )
 
     if file.content_type and file.content_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(
-            400, detail=f"MIME type '{file.content_type}' not allowed for ZIP uploads."
+            400,
+            detail=f"MIME type '{file.content_type}' not allowed for ZIP uploads.",
         )
 
     content = await file.read(MAX_FILE_SIZE + 1)
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(
-            400, detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024 * 1024)}MB"
+            400,
+            detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024 * 1024)}MB",
         )
     await file.seek(0)
 
@@ -79,8 +81,12 @@ def _count_files_in_directory(directory: str) -> int:
     try:
         count = 0
         for root, dirs, files in os.walk(directory):
-            dirs[:] = [d for d in dirs if not d.startswith(".")
-                       and d not in {"__pycache__", "node_modules", "venv", ".venv"}]
+            dirs[:] = [
+                d
+                for d in dirs
+                if not d.startswith(".")
+                and d not in {"__pycache__", "node_modules", "venv", ".venv"}
+            ]
             count += len(files)
         return count
     except Exception:
@@ -88,10 +94,7 @@ def _count_files_in_directory(directory: str) -> int:
 
 
 def _extract_github_info(url: str) -> Optional[Dict[str, str]]:
-    """
-    Extract repository information from a GitHub URL.
-    Returns None if the URL cannot be parsed.
-    """
+    """Parse any GitHub URL format. Returns None if unparseable."""
     if not url:
         return None
 
@@ -123,7 +126,6 @@ def _extract_github_info(url: str) -> Optional[Dict[str, str]]:
                 "original_url": url,
             }
 
-    # Fallback: "user/repo" style
     simple_match = re.search(r"([^/]+)/([^/]+)", url)
     if simple_match:
         username, repo = simple_match.groups()
@@ -139,7 +141,7 @@ def _extract_github_info(url: str) -> Optional[Dict[str, str]]:
     return None
 
 
-@router.post("/github", dependencies=[Depends(get_api_key)])
+@router.post("/github")
 async def upload_github(repo_url: str, branch: Optional[str] = None) -> Dict[str, Any]:
     try:
         from app.services.ingestion.repo_loader import clone_repo
@@ -175,7 +177,9 @@ async def upload_github(repo_url: str, branch: Optional[str] = None) -> Dict[str
                     normalized_url = alt_url
 
             if not result or not result.get("success"):
-                raise HTTPException(400, detail=f"Failed to clone repository: {error_msg}")
+                raise HTTPException(
+                    400, detail=f"Failed to clone repository: {error_msg}"
+                )
 
         print(f"✅ Successfully cloned to: {result['path']}")
         return {
@@ -199,7 +203,9 @@ async def upload_github(repo_url: str, branch: Optional[str] = None) -> Dict[str
         )
     except Exception as e:
         print(f"❌ GitHub upload error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"GitHub upload failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"GitHub upload failed: {str(e)}"
+        )
 
 
 @router.get("/uploads")
@@ -216,15 +222,21 @@ async def list_uploads() -> Dict[str, Any]:
                 try:
                     size_kb = _get_directory_size_kb(item)
                     total_size += size_kb
-                    uploads.append({
-                        "name": item.name,
-                        "path": str(item),
-                        "size_kb": size_kb,
-                        "size_human": _human_readable_size(size_kb * 1024),
-                        "file_count": _count_files_in_directory(str(item)),
-                        "created": datetime.fromtimestamp(item.stat().st_ctime).isoformat(),
-                        "modified": datetime.fromtimestamp(item.stat().st_mtime).isoformat(),
-                    })
+                    uploads.append(
+                        {
+                            "name": item.name,
+                            "path": str(item),
+                            "size_kb": size_kb,
+                            "size_human": _human_readable_size(size_kb * 1024),
+                            "file_count": _count_files_in_directory(str(item)),
+                            "created": datetime.fromtimestamp(
+                                item.stat().st_ctime
+                            ).isoformat(),
+                            "modified": datetime.fromtimestamp(
+                                item.stat().st_mtime
+                            ).isoformat(),
+                        }
+                    )
                 except Exception as e:
                     print(f"⚠️ Error processing upload {item}: {e}")
                     continue
@@ -237,14 +249,20 @@ async def list_uploads() -> Dict[str, Any]:
             "total_size_human": _human_readable_size(total_size * 1024),
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list uploads: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to list uploads: {str(e)}"
+        )
 
 
 def _get_directory_size_kb(directory: Path) -> float:
     total_size = 0
     for root, dirs, files in os.walk(directory):
-        dirs[:] = [d for d in dirs if not d.startswith(".")
-                   and d not in {"__pycache__", "node_modules", "venv", ".venv", ".git"}]
+        dirs[:] = [
+            d
+            for d in dirs
+            if not d.startswith(".")
+            and d not in {"__pycache__", "node_modules", "venv", ".venv", ".git"}
+        ]
         for file in files:
             try:
                 total_size += (Path(root) / file).stat().st_size
@@ -261,7 +279,7 @@ def _human_readable_size(size_bytes: int) -> str:
     return f"{size_bytes:.2f} PB"
 
 
-@router.delete("/uploads/{upload_name}", dependencies=[Depends(get_api_key)])
+@router.delete("/uploads/{upload_name}")
 async def delete_upload(upload_name: str) -> Dict[str, Any]:
     try:
         if ".." in upload_name or "/" in upload_name or "\\" in upload_name:
@@ -294,4 +312,6 @@ async def delete_upload(upload_name: str) -> Dict[str, Any]:
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete upload: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to delete upload: {str(e)}"
+        )

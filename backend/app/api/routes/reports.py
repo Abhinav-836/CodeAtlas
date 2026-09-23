@@ -3,25 +3,27 @@ Report endpoints for exporting analysis results.
 """
 import asyncio
 import json
-import os
-import shutil
-import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
-from fastapi.responses import JSONResponse, HTMLResponse, FileResponse, StreamingResponse
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    StreamingResponse,
+)
 
+from app.services.export.html import export_html
 from app.services.export.json import (
+    delete_report,
     export_json,
     get_report_list,
     get_report_metadata,
-    delete_report,
     save_json_report,
 )
-from app.services.export.html import export_html
 from app.services.export.markdown import export_markdown
 from app.services.export.pdf import export_pdf, export_pdf_to_file
 
@@ -47,10 +49,12 @@ async def list_reports(
         elif sort == "size":
             reports.sort(key=lambda x: x.get("size_bytes", 0), reverse=reverse)
         elif sort == "name":
-            reports.sort(key=lambda x: x.get("filename", "").lower(), reverse=reverse)
+            reports.sort(
+                key=lambda x: x.get("filename", "").lower(), reverse=reverse
+            )
 
         total = len(reports)
-        paginated_reports = reports[offset:offset + limit]
+        paginated_reports = reports[offset : offset + limit]
 
         return {
             "reports": paginated_reports,
@@ -89,7 +93,7 @@ async def search_reports(
                     report.get("path", ""),
                     report.get("analysis_id", ""),
                 ]
-                if not any(query.lower() in field.lower() for field in search_fields):
+                if not any(query.lower() in f.lower() for f in search_fields):
                     try:
                         summary = await get_report_summary(report.get("id"))
                         content_str = json.dumps(summary, default=str)
@@ -108,7 +112,8 @@ async def search_reports(
             if date_from or date_to:
                 created_date = (
                     report.get("created", "").split("T")[0]
-                    if report.get("created") else ""
+                    if report.get("created")
+                    else ""
                 )
                 if date_from and created_date < date_from:
                     continue
@@ -146,10 +151,16 @@ async def get_report(
             if "error" in report_data:
                 raise HTTPException(404, detail=report_data["error"])
         except json.JSONDecodeError as e:
-            raise HTTPException(status_code=500, detail=f"Invalid JSON in report: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Invalid JSON in report: {str(e)}"
+            )
 
         repo_name = report_data.get("path", "unknown").split("/")[-1]
-        timestamp = report_data.get("timestamp", datetime.now().isoformat())[:19].replace(":", "-")
+        timestamp = (
+            report_data.get("timestamp", datetime.now().isoformat())[:19].replace(
+                ":", "-"
+            )
+        )
         filename = f"{repo_name}_{timestamp}"
 
         if format == "json":
@@ -158,16 +169,22 @@ async def get_report(
                 return StreamingResponse(
                     iter([content]),
                     media_type="application/json",
-                    headers={"Content-Disposition": f'attachment; filename="{filename}.json"'},
+                    headers={
+                        "Content-Disposition": f'attachment; filename="{filename}.json"'
+                    },
                 )
-            return JSONResponse(content=jsonable_encoder(report_data), media_type="application/json")
+            return JSONResponse(
+                content=jsonable_encoder(report_data), media_type="application/json"
+            )
 
         elif format == "html":
             html_content = await asyncio.to_thread(export_html, report_data)
             if download:
                 return HTMLResponse(
                     content=html_content,
-                    headers={"Content-Disposition": f'attachment; filename="{filename}.html"'},
+                    headers={
+                        "Content-Disposition": f'attachment; filename="{filename}.html"'
+                    },
                 )
             return HTMLResponse(content=html_content)
 
@@ -177,14 +194,18 @@ async def get_report(
                 return StreamingResponse(
                     iter([md_content]),
                     media_type="text/markdown",
-                    headers={"Content-Disposition": f'attachment; filename="{filename}.md"'},
+                    headers={
+                        "Content-Disposition": f'attachment; filename="{filename}.md"'
+                    },
                 )
-            return JSONResponse(content={
-                "content": md_content,
-                "filename": f"{filename}.md",
-                "format": "markdown",
-                "size": len(md_content),
-            })
+            return JSONResponse(
+                content={
+                    "content": md_content,
+                    "filename": f"{filename}.md",
+                    "format": "markdown",
+                    "size": len(md_content),
+                }
+            )
 
         elif format == "pdf":
             pdf_bytes = await asyncio.to_thread(export_pdf, report_data)
@@ -196,7 +217,9 @@ async def get_report(
             return StreamingResponse(
                 iter([pdf_bytes]),
                 media_type="application/pdf",
-                headers={"Content-Disposition": f'attachment; filename="{filename}.pdf"'},
+                headers={
+                    "Content-Disposition": f'attachment; filename="{filename}.pdf"'
+                },
             )
         else:
             raise HTTPException(
@@ -253,12 +276,14 @@ async def get_report_metadata_endpoint(report_id: str) -> Dict[str, Any]:
     report_file = Path(f"storage/reports/{report_id}.json")
     if report_file.exists():
         file_stats = report_file.stat()
-        metadata.update({
-            "size_human": _human_readable_size(file_stats.st_size),
-            "created": datetime.fromtimestamp(file_stats.st_ctime).isoformat(),
-            "modified": datetime.fromtimestamp(file_stats.st_mtime).isoformat(),
-            "permissions": oct(file_stats.st_mode)[-3:],
-        })
+        metadata.update(
+            {
+                "size_human": _human_readable_size(file_stats.st_size),
+                "created": datetime.fromtimestamp(file_stats.st_ctime).isoformat(),
+                "modified": datetime.fromtimestamp(file_stats.st_mtime).isoformat(),
+                "permissions": oct(file_stats.st_mode)[-3:],
+            }
+        )
     return metadata
 
 
@@ -271,7 +296,9 @@ async def delete_report_endpoint(report_id: str) -> Dict[str, Any]:
 
         deleted = await asyncio.to_thread(delete_report, report_id)
         if not deleted:
-            raise HTTPException(status_code=500, detail=f"Failed to delete report {report_id}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to delete report {report_id}"
+            )
 
         return {
             "deleted": True,
@@ -284,7 +311,9 @@ async def delete_report_endpoint(report_id: str) -> Dict[str, Any]:
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete report: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to delete report: {str(e)}"
+        )
 
 
 @router.post("/{report_id}/export")
@@ -318,8 +347,12 @@ async def export_report_file(
                 json.dumps(report_data, indent=2, ensure_ascii=False, default=str),
                 encoding="utf-8",
             ),
-            "html": lambda: filepath.write_text(export_html(report_data), encoding="utf-8"),
-            "markdown": lambda: filepath.write_text(export_markdown(report_data), encoding="utf-8"),
+            "html": lambda: filepath.write_text(
+                export_html(report_data), encoding="utf-8"
+            ),
+            "markdown": lambda: filepath.write_text(
+                export_markdown(report_data), encoding="utf-8"
+            ),
             "pdf": lambda: export_pdf_to_file(report_data, str(filepath)),
         }
 
@@ -333,7 +366,9 @@ async def export_report_file(
         file_size = filepath.stat().st_size
 
         if background_tasks:
-            background_tasks.add_task(_delete_export_after_delay, filepath, delay_hours=24)
+            background_tasks.add_task(
+                _delete_export_after_delay, filepath, delay_hours=24
+            )
 
         return {
             "exported": True,
@@ -445,7 +480,9 @@ async def save_report_manually(report_data: Dict[str, Any]) -> Dict[str, Any]:
         required_fields = ["path", "timestamp", "files_analyzed"]
         for field in required_fields:
             if field not in report_data:
-                raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
+                raise HTTPException(
+                    status_code=400, detail=f"Missing required field: {field}"
+                )
 
         report_id = await asyncio.to_thread(save_json_report, report_data)
         return {
@@ -472,7 +509,11 @@ async def cleanup_exports(
     try:
         export_dir = Path("storage/exports")
         if not export_dir.exists():
-            return {"cleaned": True, "deleted": 0, "message": "Export directory does not exist"}
+            return {
+                "cleaned": True,
+                "deleted": 0,
+                "message": "Export directory does not exist",
+            }
 
         cutoff_time = datetime.now().timestamp() - (older_than_days * 24 * 3600)
         deleted_files = []
