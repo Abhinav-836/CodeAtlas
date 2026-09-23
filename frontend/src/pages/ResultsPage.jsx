@@ -7,7 +7,7 @@ import ProgressBar from '../components/UI/ProgressBar';
 import AnalysisChart from '../components/Charts/AnalysisChart';
 import { useAnalysis } from '../hooks/useAnalysis';
 import ReactMarkdown from 'react-markdown';
-import { SEVERITY_COLORS } from '../utils/constants';
+import { SEVERITY_COLORS, API_URL } from '../utils/constants';
 
 const ResultsPage = () => {
   const { taskId } = useParams();
@@ -44,7 +44,7 @@ const ResultsPage = () => {
   const fetchAIInsights = async () => {
     setAiLoading(true);
     try {
-      const response = await axios.get(`http://localhost:8000/api/analyze/results/${taskId}?include_ai=true`);
+      const response = await axios.get(`${API_URL}/api/analyze/results/${taskId}?include_ai=true`);
       if (response.data.ai_insights) {
         setResult(prev => ({ ...prev, ai_insights: response.data.ai_insights }));
       }
@@ -599,7 +599,7 @@ const ResultsPage = () => {
         {/* Action Buttons */}
         <div className="flex flex-wrap justify-center gap-4 mt-8">
           <Button
-            onClick={() => window.open(`http://localhost:8000/api/reports/${result?.report_id}?format=html`, '_blank')}
+            onClick={() => window.open(`${API_URL}/api/reports/${result?.report_id}?format=html`, '_blank')}
             variant="primary"
             className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
           >

@@ -57,19 +57,11 @@ export default function AnalyzePage() {
       setStartError(null);
       showToast("Starting AI analysis...", "info");
       
-      // Call the API to start analysis
-      const response = await fetch(`http://localhost:8000/api/analyze?path=${encodeURIComponent(path)}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.detail || 'Failed to start analysis');
-      }
+      // Call the API to start analysis (goes through apiClient, which
+      // respects VITE_API_URL - a hardcoded localhost URL here would break
+      // in any deployed environment)
+      const response = await analyzeAPI.startAnalysis(path);
+      const data = response.data;
       
       console.log("AI Analysis started:", data);
       showToast("AI analysis started successfully!", "success");
@@ -79,8 +71,9 @@ export default function AnalyzePage() {
       
     } catch (err) {
       console.error("Start analysis error:", err);
-      setStartError(err.message);
-      showToast(err.message, "error");
+      const message = err.response?.data?.detail || err.message || "Failed to start analysis";
+      setStartError(message);
+      showToast(message, "error");
     }
   };
 

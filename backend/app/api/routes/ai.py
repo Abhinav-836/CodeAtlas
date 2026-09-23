@@ -7,7 +7,7 @@ import asyncio
 import json
 
 from app.services.ai.llm_client import llm_client
-from app.services.ai.summarizer import summarize_codebase
+from app.services.ai.summarizer import explain_complex_file
 from app.core.config import settings
 
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -29,7 +29,9 @@ async def ai_explain(
         )
     
     try:
-        explanation = summarize_codebase(file_path, code)
+        # explain_complex_file is sync (uses the sync call_llm wrapper) -
+        # no await here.
+        explanation = explain_complex_file(file_path, code)
         
         return {
             "success": True,

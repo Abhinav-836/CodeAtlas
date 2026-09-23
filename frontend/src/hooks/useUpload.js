@@ -31,7 +31,9 @@ export function useUpload() {
       clearInterval(progressInterval);
       setProgress(100);
 
-      return uploadResponse.data.path;
+      // Backend returns "extracted_to", not "path" - using the wrong field
+      // name here silently sends `undefined` to startAnalysis().
+      return uploadResponse.data.extracted_to;
     } catch (err) {
       setError(err?.message || "Upload failed");
       throw err;
@@ -47,7 +49,8 @@ export function useUpload() {
     try {
       // ✅ Fixed: send repoUrl directly (not as object)
       const response = await uploadAPI.uploadGithub(url);
-      return response.data.path;
+      // Backend returns "local_path", not "path".
+      return response.data.local_path;
     } catch (err) {
       setError(err?.message || "GitHub upload failed");
       throw err;

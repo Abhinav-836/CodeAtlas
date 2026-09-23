@@ -95,4 +95,7 @@ File: {file_path}
 
 ```python
 {code_content[:2000]}
+```
 """
+
+    return call_llm(prompt)

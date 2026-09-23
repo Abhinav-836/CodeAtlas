@@ -5,6 +5,7 @@ import Card from "../components/UI/Card";
 import Loader from "../components/UI/Loader";
 import Modal from "../components/UI/Modal";
 import { reportsAPI } from "../utils/apiClient";
+import { API_URL } from "../utils/constants";
 
 export default function ReportsPage() {
   const [searchParams] = useSearchParams();
@@ -93,7 +94,7 @@ export default function ReportsPage() {
 
       if (res.data?.download_url) {
         const link = document.createElement("a");
-        link.href = `http://localhost:8000${res.data.download_url}`;
+        link.href = `${API_URL}${res.data.download_url}`;
         link.download = `${selectedReport.report_id}.${exportFormat}`;
         document.body.appendChild(link);
         link.click();

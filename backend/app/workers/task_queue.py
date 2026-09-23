@@ -73,6 +73,7 @@ class TaskQueue:
         
         self.tasks: Dict[str, Dict[str, Any]] = {}
         self.task_queue = deque()
+        self._func_refs: Dict[str, Callable] = {}  # task_id -> actual callable (avoids re-import hack)
         self.max_workers = max_workers
         self.max_queue_size = max_queue_size
         self.default_timeout = default_timeout
@@ -173,6 +174,7 @@ class TaskQueue:
             }
             
             self.tasks[task_id] = task_info
+            self._func_refs[task_id] = func  # keep the real callable, not just its name
             
             # Add to priority queue (lower number = higher priority)
             self.task_queue.append((priority, task_id))
@@ -230,17 +232,23 @@ class TaskQueue:
         logger.info(f"Executing task {task_id}: {func_name}")
         
         try:
-            # Import and get function
-            module_name = task_info["function_module"]
-            if module_name != "unknown":
-                try:
-                    import importlib
-                    module = importlib.import_module(module_name)
-                    func = getattr(module, func_name, None)
-                except (ImportError, AttributeError):
+            # Use the actual callable captured at enqueue time. Falling back
+            # to re-importing by name only covers the (rare) case of a task
+            # reloaded from disk after a restart, where no live reference
+            # exists any more.
+            func = self._func_refs.get(task_id)
+
+            if func is None:
+                module_name = task_info["function_module"]
+                if module_name != "unknown":
+                    try:
+                        import importlib
+                        module = importlib.import_module(module_name)
+                        func = getattr(module, func_name, None)
+                    except (ImportError, AttributeError):
+                        func = None
+                else:
                     func = None
-            else:
-                func = None
             
             # If we couldn't get the function, skip
             if not func:
@@ -534,6 +542,7 @@ class TaskQueue:
         
         for task_id in tasks_to_remove:
             del self.tasks[task_id]
+            self._func_refs.pop(task_id, None)
         
         # Also clean up persisted results
         if self.persist_results:

@@ -24,6 +24,13 @@ class LLMClient:
         self.timeout = settings.LLM_TIMEOUT or 60
         self.api_key = os.getenv("OLLAMA_API_KEY", "")
 
+    def _headers(self) -> Dict[str, str]:
+        """Auth header for Ollama Cloud models. Empty/local Ollama doesn't
+        need it, but sending it unconditionally is harmless there too."""
+        if self.api_key:
+            return {"Authorization": f"Bearer {self.api_key}"}
+        return {}
+
     def _prepare_messages(self, prompt: str, system_message: Optional[str] = None) -> List[Dict[str, str]]:
         """Prepare messages in Ollama format."""
         messages = []
@@ -45,6 +52,7 @@ class LLMClient:
             
             response = requests.post(
                 f"{self.base_url}/api/chat",
+                headers=self._headers(),
                 json={
                     "model": kwargs.get("model", self.model),
                     "messages": messages,
@@ -76,10 +84,6 @@ class LLMClient:
         Async LLM call.
         Used for AI summaries and heavy analysis.
         """
-        headers = {
-        "Authorization": f"Bearer {self.api_key}"
-        }
-        
         try:
             messages = self._prepare_messages(
                 prompt,
@@ -89,6 +93,7 @@ class LLMClient:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     f"{self.base_url}/api/chat",
+                    headers=self._headers(),
                     json={
                         "model": kwargs.get("model", self.model),
                         "messages": messages,
@@ -147,6 +152,7 @@ class LLMClient:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     f"{self.base_url}/api/chat",
+                    headers=self._headers(),
                     json={
                         "model": kwargs.get("model", self.model),
                         "messages": messages,
