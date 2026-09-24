@@ -407,14 +407,21 @@ async def root() -> Dict[str, Any]:
     }
 
 
-@app.get("/health", include_in_schema=False)
-async def health_check():
-    return {
-        "status": "healthy",
-        "service": "codeatlas-api",
-        "timestamp": time.time(),
-        "version": settings.API_VERSION,
-    }
+# The real /health lives in app/api/routes/health.py (CPU/memory/uptime
+# data) and is included below via app.include_router(routers["health"], ...).
+# This fallback is only registered when that router failed to import -
+# registering it unconditionally would permanently shadow the real one,
+# since FastAPI/Starlette matches routes in registration order and this
+# would have been added first.
+if "health" not in routers:
+    @app.get("/health", include_in_schema=False)
+    async def health_check_fallback():
+        return {
+            "status": "healthy",
+            "service": "codeatlas-api",
+            "timestamp": time.time(),
+            "version": settings.API_VERSION,
+        }
 
 
 for mount_path, directory, name in [
