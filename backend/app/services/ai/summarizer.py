@@ -85,12 +85,18 @@ def explain_complex_file(file_path: str, code_content: str) -> str:
     """
     Explain a complex source file using AI.
 
-    Fully implemented: builds the prompt and actually calls the LLM.
+    Fully implemented: builds the prompt WITH the actual code and calls
+    the LLM. (Previous version accepted code_content but never put it
+    in the prompt - the AI was explaining a file it never saw.)
     """
     prompt = f"""
 Explain the following file in simple terms.
 
 File: {file_path}
+
+```
+{code_content[:3000]}
+```
 
 Provide:
 1. What this file does
