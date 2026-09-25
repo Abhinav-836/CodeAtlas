@@ -1,164 +1,69 @@
 # CodeAtlas Roadmap
 
-## 🎯 Vision
-Become the most comprehensive AI-powered code intelligence platform for developers and organizations.
+This tracks what's actually built vs. what's planned. No fabricated
+star counts or user metrics — those were placeholders from an earlier
+draft and didn't reflect anything real.
 
-## 🗓️ Release Timeline
+## ✅ Built and working
 
-### 🚀 v0.1.0 - MVP (Current)
-**Status**: In Development
-**Target**: January 2024
+- Repository ingestion: GitHub clone, ZIP upload, local path
+- Async task queue for background analysis
+- Metrics: file counts, LOC, language mix, risk score, Python
+  complexity
+- Architecture inference by path convention
+- Security scanning: secrets (regex + entropy + git history),
+  Python-AST-based vulnerability patterns, regex patterns for other
+  languages
+- AI layer: Ollama integration (local + cloud, with auth), executive
+  summaries, per-file explanations, streaming chat
+- Export: JSON, Markdown, HTML, PDF
+- CLI (`codeatlas analyze`, `codeatlas export`)
+- React frontend: upload flow, live analysis progress, results
+  dashboard, reports list
+- Deployed on Render (backend + frontend as separate services)
 
-**Features:**
-- ✅ Basic repository analysis (GitHub, ZIP)
-- ✅ AST parsing for Python
-- ✅ Security scanning (secrets, vulnerabilities)
-- ✅ JSON/Markdown export
-- ✅ REST API with FastAPI
-- ✅ Task queue for async processing
+## 🚧 Scaffolded but not wired in
 
-### 🔥 v0.2.0 - Enhanced Analysis
-**Target**: February 2024
+- **Database layer** (`app/db/`) — models and async sessions exist;
+  reports are still stored as flat JSON files, not read from the DB.
+- **API-key auth** (`app/api/dependencies.py`) — implemented, not
+  applied to any route yet.
+- **Dependency graph analysis** (`dependency_graph.py`,
+  `flow_extractor.py`) — builds real call/import graphs with
+  `networkx`, not yet called from the main analysis pipeline.
+- **License checking** (`license_checker.py`) — detects licenses and
+  flags incompatible dependencies, not yet exposed via an endpoint.
+- **Embeddings** (`embeddings.py`) — OpenAI/local/fake backends
+  implemented, not called from anywhere yet.
 
-**Features:**
-- 📊 Advanced metrics and complexity analysis
-- 🏗️ Architecture detection and visualization
-- 🔍 Multi-language support (JavaScript, Java, Go)
-- 📈 Performance improvements
-- 🛡️ Enhanced security scanning
-- 📄 HTML report generation
+## 🔜 Not started
 
-### 🌟 v0.3.0 - AI Integration
-**Target**: March 2024
+- Multi-language complexity analysis beyond Python (JS/TS AST parsing)
+- Real cyclomatic complexity (current Python complexity score is a
+  simple function/class/import count, not McCabe complexity)
+- Dependency vulnerability scanning against a real CVE database
+  (e.g. OSV.dev)
+- CI baseline mode (report only *new* findings vs. a saved baseline)
+- Git-history intelligence beyond secrets (hotspots, bus factor,
+  orphaned-file detection)
+- User accounts / multi-tenant reports (depends on the DB layer above
+  actually being wired in)
 
-**Features:**
-- 🤖 AI-powered code explanations
-- 📝 Automatic documentation generation
-- 🔄 Code review suggestions
-- 🎯 Risk assessment scoring
-- 💬 Natural language queries
-- 📊 Trend analysis
+## Known limitations to design around, not just fix later
 
-### 🎨 v0.4.0 - Web Interface
-**Target**: April 2024
+- GitHub imports are shallow-cloned (`--depth 1`), so git-history
+  secret scanning only works on repos with full local history, not on
+  fresh GitHub clones, unless the clone depth is changed.
+- The task queue is in-process and single-instance — it does not
+  survive a process restart mid-task, and does not scale across
+  multiple server instances without a real message broker.
+- Vulnerability findings are pattern matches, not proven exploits —
+  there's no dataflow tracking between input sources and dangerous
+  sinks.
 
-**Features:**
-- 🌐 Web dashboard (React/Next.js)
-- 📱 Responsive design
-- 📊 Interactive visualizations
-- 👥 User authentication
-- 🏢 Team collaboration
-- 📋 Project management
+## How to contribute
 
-### 🏢 v1.0.0 - Enterprise Ready
-**Target**: June 2024
-
-**Features:**
-- 🔒 Enterprise authentication (SSO, LDAP)
-- 📦 Self-hosted deployment
-- 🗄️ Database support (PostgreSQL)
-- 🔄 CI/CD integration
-- 📈 Advanced analytics
-- 🛡️ Compliance features (GDPR, SOC2)
-
-### 🚀 v2.0.0 - Advanced Features
-**Target**: Q4 2024
-
-**Features:**
-- 🔌 Plugin system
-- 📊 Custom metrics and rules
-- 🤝 API marketplace
-- 🌍 Multi-cloud support
-- 🎯 Predictive analysis
-- 📱 Mobile application
-
-## 📈 Metrics & Goals
-
-### Q1 2024
-- ✅ 100 GitHub stars
-- ✅ 50 active users
-- ✅ 1,000 analyses performed
-
-### Q2 2024
-- 📊 500 GitHub stars
-- 📊 250 active users
-- 📊 10,000 analyses performed
-
-### Q3 2024
-- 🚀 1,000 GitHub stars
-- 🚀 1,000 active users
-- 🚀 First enterprise customers
-
-## 🤝 Community & Ecosystem
-
-### Open Source Strategy
-- 📚 Comprehensive documentation
-- 🐛 Active issue tracking
-- 🔄 Regular updates
-- 👥 Contributor-friendly
-
-### Integration Partners
-- GitHub/GitLab/GitLab CI
-- Jenkins/CircleCI/Travis CI
-- Slack/Microsoft Teams
-- Jira/Linear/Asana
-
-## 🛠️ Technical Debt & Improvements
-
-### Immediate (v0.1.x)
-- [ ] Improve error handling
-- [ ] Add comprehensive tests
-- [ ] Enhance documentation
-- [ ] Performance benchmarking
-
-### Short-term (v0.2.x)
-- [ ] Database migrations
-- [ ] API versioning
-- [ ] Rate limiting
-- [ ] Monitoring & logging
-
-### Long-term (v1.x)
-- [ ] Microservices architecture
-- [ ] GraphQL API
-- [ ] Real-time updates
-- [ ] Advanced caching
-
-## 📊 Success Metrics
-
-### User Metrics
-- Monthly Active Users (MAU)
-- Analysis completion rate
-- User retention rate
-- Customer satisfaction (CSAT)
-
-### Technical Metrics
-- API response time
-- Analysis processing time
-- System uptime
-- Error rate
-
-### Business Metrics
-- GitHub stars growth
-- Contributor count
-- Enterprise adoption
-- Community engagement
-
-## 🎯 How to Contribute
-
-1. **Report Issues**: Found a bug? Open an issue
-2. **Request Features**: Need a feature? Submit a proposal
-3. **Contribute Code**: Check "good first issue" labels
-4. **Improve Docs**: Help make documentation better
-5. **Spread the Word**: Star the repo, share on social media
-
-## 📞 Contact & Support
-
-- **GitHub Issues**: For bugs and feature requests
-- **Discord**: Community discussions
-- **Email**: hello@codeatlas.dev
-- **Twitter**: @CodeAtlasDev
-
----
-
-*Last Updated: December 2023*
-*Roadmap is subject to change based on community feedback*
+- Found a bug? Open an issue with repro steps.
+- Want to pick up one of the "scaffolded but not wired in" items?
+  Those are the most valuable next steps — the hard part (the code)
+  already exists, it just needs a route/caller.

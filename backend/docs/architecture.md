@@ -1,212 +1,144 @@
 # CodeAtlas Architecture
 
-CodeAtlas is a modular AI-powered code intelligence platform designed for scalability and extensibility.
+This document describes the components that actually exist in the
+codebase today — not aspirational infrastructure. Where something is
+planned but not built, it's called out explicitly rather than implied.
 
-## System Architecture Overview
-┌─────────────────────────────────────────────────────────────┐
-│ Client Interfaces │
-├─────────────────────────────────────────────────────────────┤
-│ REST API (FastAPI) │ CLI Tool │ Web Dashboard (Phase 2)│
-└─────────────────────────────────────────────────────────────┘
-│
-┌─────────────────────────────────────────────────────────────┐
-│ API Gateway / Load Balancer │
-└─────────────────────────────────────────────────────────────┘
-│
-┌─────────────────────────────────────────────────────────────┐
-│ Core Application Layer │
-├─────────────────────────────────────────────────────────────┤
-│ • Request Handlers │ • Authentication │
-│ • Rate Limiting │ • Authorization │
-│ • Input Validation │ • Audit Logging │
-└─────────────────────────────────────────────────────────────┘
-│
-┌─────────────────────────────────────────────────────────────┐
-│ Business Logic Layer │
-├─────────────────────────────────────────────────────────────┤
-│ • Analysis Engine │ • Security Scanner │
-│ • AI Integration │ • Metrics Calculator │
-│ • Report Generator │ • Export Manager │
-└─────────────────────────────────────────────────────────────┘
-│
-┌─────────────────────────────────────────────────────────────┐
-│ Data Access Layer │
-├─────────────────────────────────────────────────────────────┤
-│ • Repository Pattern │ • Database Models │
-│ • Caching Layer │ • File Storage │
-└─────────────────────────────────────────────────────────────┘
-│
-┌─────────────────────────────────────────────────────────────┐
-│ Infrastructure Layer │
-├─────────────────────────────────────────────────────────────┤
-│ • Database (SQLite/PostgreSQL) │
-│ • File Storage (Local/Cloud) │
-│ • Cache (Redis) │
-│ • Message Queue (Celery/RabbitMQ) │
-└─────────────────────────────────────────────────────────────┘
+## Request Flow
 
+```
+Client (React frontend, or CLI, or curl)
+        │
+        ▼
+FastAPI app (backend/main.py)
+        │
+        ├─ Middleware: CORS, GZip, request logging
+        ├─ Exception handlers: validation, HTTP, generic
+        │
+        ▼
+Routers (app/api/routes/)
+        ├─ /health          — liveness/readiness probes
+        ├─ /api/upload      — ZIP + GitHub ingestion
+        ├─ /api/analyze     — enqueue + poll analysis tasks
+        ├─ /api/reports     — list/search/export saved reports
+        └─ /api/ai          — explain / ask / chat / model status
+        │
+        ▼
+Services (app/services/)
+        ├─ ingestion/  — file_scanner, repo_loader, zip_loader, ignore_rules
+        ├─ analysis/   — metrics, architecture, ast_parser, dependency_graph, flow_extractor
+        ├─ security/   — secrets_scanner, vuln_patterns, license_checker
+        ├─ export/     — json, html, markdown, pdf
+        └─ ai/         — llm_client (Ollama), summarizer, analyze_ai
+        │
+        ▼
+Workers (app/workers/)
+        ├─ task_queue.py    — in-process async queue with a thread pool
+        └─ analyze_task.py  — orchestrates one full repo analysis
+        │
+        ▼
+Storage
+        ├─ storage/uploads  — extracted ZIPs
+        ├─ storage/repos    — cloned git repos
+        ├─ storage/reports  — analysis results, as JSON files
+        └─ storage/exports  — user-requested export files
+```
 
 ## Core Components
 
-### 1. Ingestion Layer
-- **GitHub Repositories**: Clone and analyze public/private repos
-- **ZIP Uploads**: Secure extraction with size limits and virus scanning
-- **Local Directories**: File system scanning with ignore rules
-- **API Integration**: Direct integration with GitHub/GitLab APIs
+### Ingestion
+- **ZIP upload** — path-traversal-safe extraction, 100 MB limit.
+- **GitHub clone** — `git clone --depth 1`, HTTPS or SSH URLs, several
+  URL formats accepted (`user/repo`, full URL, `.git` suffix, etc.).
+- **Local path** — recursive scan with ignore rules (`.git`,
+  `node_modules`, `__pycache__`, and similar are skipped by default).
 
-### 2. Analysis Engine
-- **AST Parser**: Language-specific abstract syntax tree parsing
-- **Dependency Graph**: Extracts imports, exports, and dependencies
-- **Complexity Metrics**: Cyclomatic complexity, maintainability index
-- **Code Smells**: Detects anti-patterns and code smells
-- **Architecture Inference**: Automatically detects architectural patterns
+### Analysis Engine
+- **Metrics** — file counts, sizes, language mix, a composite risk
+  score, and Python AST-derived complexity (functions/classes/imports
+  per file, most-complex-files ranking).
+- **Architecture inference** — groups files into layers by path
+  convention (`/api/`, `/services/`, `/db/`, `/utils/`, everything
+  else falls into `other`). This is a simple convention match, not
+  static analysis of actual coupling.
+- **Dependency graph** (`dependency_graph.py`, `flow_extractor.py`) —
+  builds an import/call graph with `networkx`, can detect circular
+  dependencies and suggest refactoring targets. Present in the
+  codebase but not yet called from the main analysis pipeline.
 
-### 3. Security Scanner
-- **Secret Detection**: API keys, passwords, tokens
-- **Vulnerability Patterns**: Common security vulnerabilities
-- **Dependency Audit**: Known vulnerabilities in dependencies
-- **License Compliance**: Open source license detection and compliance
+### Security Scanner
+- **Secrets** — regex patterns for common key shapes, a Shannon-entropy
+  pass for unlabeled high-randomness strings, and a git-history walk
+  (up to 200 commits) so a secret that was committed and later removed
+  is still caught. Minified/vendored files (`.min.js`, `node_modules/`,
+  `dist/`, etc.) are skipped to cut false positives.
+- **Vulnerability patterns** — Python files are parsed with `ast` so
+  only real `Call` nodes on genuinely dangerous names are flagged
+  (`eval(...)`, `pickle.loads(...)`, `os.system(...)`), not lookalikes
+  like `re.compile(...)`. Other languages use a small set of
+  conservative regex patterns (`shell=True`, `verify=False`, hardcoded
+  key shapes). This is pattern matching, not dataflow analysis — it
+  flags leads, not confirmed exploits.
+- **License checking** (`license_checker.py`) — detects a repo's
+  license file and flags known-incompatible dependency licenses.
+  Implemented but not yet wired into a route.
 
-### 4. AI Layer
-- **LLM Integration**: OpenAI, Anthropic, local models
-- **Code Summarization**: Automatic documentation generation
-- **Architecture Explanation**: Natural language explanations
-- **Code Review**: Automated code review suggestions
-- **Risk Assessment**: AI-powered risk scoring
+### AI Layer
+- **LLM client** (`llm_client.py`) — talks to Ollama's `/api/chat`
+  (sync, async, and streaming). Sends `Authorization: Bearer <key>`
+  when `OLLAMA_API_KEY` is set, for Ollama Cloud models. Falls back to
+  a canned response if the model is unreachable, so the rest of an
+  analysis still completes.
+- **Endpoints** — `/api/ai/explain` (per-file explanation),
+  `/api/ai/ask` (free-form Q&A), `/api/ai/chat` (streaming WebSocket),
+  `/api/ai/models`, `/api/ai/status`.
+- **Embeddings** (`embeddings.py`) — supports OpenAI, a local hash-based
+  fallback, and a random "fake" backend for testing. Implemented but
+  not currently called from any route.
 
-### 5. Export Layer
-- **JSON**: Full structured data export
-- **Markdown**: Human-readable documentation
-- **HTML**: Interactive web reports
-- **PDF**: Printable reports (enterprise feature)
-- **GraphViz**: Architecture diagrams
+### Export Layer
+- **JSON** — the canonical format; every report is stored this way.
+- **Markdown / HTML** — human-readable renderings of the same data.
+- **PDF** — via `reportlab`; degrades gracefully (returns `None`,
+  surfaced as a 500 with a clear message) if `reportlab` isn't
+  installed.
 
-### 6. Storage Layer
-- **Relational Database**: User data, analysis metadata
-- **File Storage**: Uploaded files, generated reports
-- **Cache**: Redis for session management and rate limiting
-- **Object Storage**: Cloud storage for large files (S3 compatible)
+### Storage Layer
+- **Filesystem** is the source of truth today: uploads, cloned repos,
+  and JSON reports all live under `storage/`.
+- **Database** (`app/db/`) — SQLAlchemy models exist (`User`,
+  `Analysis`, `Report`, `Finding`, `Export`, etc.) and the async
+  session layer works against SQLite (`aiosqlite`) or PostgreSQL
+  (`asyncpg`), but no route currently reads or writes through it. It's
+  scaffolding for a future move off flat JSON files.
 
-## Data Flow
+## Task Queue
 
-1. **Upload Phase**
-Client → API → File Validation → Storage → Analysis Queue
+`task_queue.py` is an in-process queue: a `ThreadPoolExecutor` plus an
+asyncio-friendly `enqueue()`/`get_status()`/`get_result()` interface.
+It persists task results to `storage/task_results/` as a recovery
+mechanism, but the live callable reference is what's actually used to
+run a task — persistence is only a fallback path for a task rehydrated
+after a restart. It is **not** distributed; if you need multiple
+worker processes, this would need to be swapped for something like
+Celery or Arq. Nothing in the current code assumes that swap has
+happened, so this document doesn't describe one.
 
-text
+## Security Notes
 
-2. **Analysis Phase**
-Analysis Queue → File Scanner → AST Parser → Security Scan → AI Processing → Metrics
+- API-key authentication exists (`app/api/dependencies.py`,
+  constant-time comparison) but is **not currently applied to any
+  route** — see the README for how to turn it on.
+- Path-traversal guards are in place on ZIP extraction and on the
+  exported-file download endpoint.
+- CORS origins are configured via `CORS_ORIGINS` in settings; there is
+  no separate API gateway or load balancer — a single FastAPI process
+  handles everything.
 
-text
+## Deployment (current)
 
-3. **Export Phase**
-Analysis Results → Report Generator → Format Conversion → Storage → Client
-
-
-## Scalability Design
-
-### Horizontal Scaling
-- Stateless API servers
-- Database connection pooling
-- Redis-based session storage
-- Message queue for background jobs
-
-### Performance Optimizations
-- Lazy loading of large files
-- Incremental analysis for large repositories
-- Caching of analysis results
-- Parallel processing of independent modules
-
-### Monitoring & Observability
-- Structured logging with correlation IDs
-- Metrics collection (Prometheus compatible)
-- Health checks and readiness probes
-- Distributed tracing (OpenTelemetry)
-
-## Security Architecture
-
-### Authentication & Authorization
-- API key authentication
-- JWT-based sessions
-- Role-based access control (RBAC)
-- Audit logging for all operations
-
-### Data Security
-- File upload validation and scanning
-- Secure file deletion
-- Encryption at rest for sensitive data
-- Secure communication (HTTPS/TLS)
-
-### Compliance
-- GDPR compliant data handling
-- Data retention policies
-- Access logging and audit trails
-- Regular security audits
-
-## Deployment Options
-
-### Development
-- Single container with SQLite
-- Local file storage
-- Minimal dependencies
-
-### Production
-- Docker containers
-- PostgreSQL database
-- Redis cache
-- S3-compatible object storage
-- Kubernetes orchestration
-
-### Enterprise
-- High availability clusters
-- Multi-region deployment
-- Backup and disaster recovery
-- Private cloud support
-
-## Technology Stack
-
-### Backend
-- **Framework**: FastAPI (Python 3.10+)
-- **Database**: SQLAlchemy (SQLite/PostgreSQL)
-- **Cache**: Redis
-- **Queue**: Celery + RabbitMQ
-- **Auth**: JWT, OAuth2
-
-### Frontend (Phase 2)
-- **Framework**: Next.js / React
-- **UI Library**: Tailwind CSS, ShadCN
-- **Charts**: Recharts / Chart.js
-- **State Management**: Zustand
-
-### DevOps
-- **Containerization**: Docker
-- **Orchestration**: Docker Compose / Kubernetes
-- **CI/CD**: GitHub Actions
-- **Monitoring**: Prometheus, Grafana
-
-## Future Enhancements
-
-### Phase 1 (Current)
-- Basic analysis features
-- Core API endpoints
-- Essential security scanning
-
-### Phase 2 (Q2 2024)
-- Web dashboard
-- Real-time analysis
-- Enhanced AI features
-- Team collaboration
-
-### Phase 3 (Q3 2024)
-- Plugin system
-- Custom rule engine
-- Advanced visualization
-- Enterprise integrations
-
-## Design Principles
-
-1. **Modularity**: Each component is independent and replaceable
-2. **Extensibility**: Easy to add new analyzers and exporters
-3. **Performance**: Efficient processing of large codebases
-4. **Security**: Secure by default, defense in depth
-5. **Usability**: Intuitive API and clear documentation
+Both the FastAPI backend and the React frontend are deployed on
+Render, as two separate services, with auto-deploy on push. There is
+no Redis, no message queue, no S3-compatible storage, and no
+Kubernetes — those aren't part of this project's current
+infrastructure.
