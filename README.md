@@ -1,115 +1,151 @@
-🚀 CodeAtlas – AI-Powered Code Intelligence Platform
+# 🚀 CodeAtlas – AI-Powered Code Intelligence Platform
 
-Transforming repositories into intelligent, searchable, AI-assisted knowledge systems.
+Transforming repositories into intelligent, AI-assisted analysis reports.
 
-CodeAtlas is a full-stack AI-powered platform that allows developers to analyze, understand, and interact with codebases using Large Language Models (LLMs).
-It combines backend intelligence with a modern frontend interface to create a seamless developer experience.
+CodeAtlas is a full-stack platform that lets developers upload a
+repository (via GitHub, ZIP, or a local path) and get back a structured
+analysis — security findings, code metrics, architecture layout, and an
+LLM-generated summary — through a clean web UI.
 
-🌟 Why CodeAtlas?
+---
 
-Modern repositories grow complex quickly. CodeAtlas solves this by:
+## 🌟 Why CodeAtlas?
 
-🧠 Understanding code context using LLMs
+- 🔒 **Security scanning** — hardcoded secrets (including ones committed
+  and later removed from git history) and common vulnerability patterns
+- 📊 **Code metrics** — file counts, LOC, language mix, complexity, and a
+  composite risk score
+- 🏗️ **Architecture overview** — groups files into layers by convention
+- 🤖 **AI-generated insights** — an executive summary and per-file
+  explanations via a local or cloud LLM
+- ⚡ **Fast, async analysis** — upload, watch live progress, get a report
 
-🔎 Enabling semantic code search
+---
 
-💬 Allowing natural language interaction with repositories
+## 🏗️ Architecture
 
-📊 Structuring and storing repository insights
-
-⚡ Providing fast, clean UI for developer productivity
-
-🏗️ Architecture
+```
 CodeAtlas/
 │
-├── backend/     → FastAPI / Python AI engine
+├── backend/     → FastAPI / Python analysis engine
 ├── frontend/    → React + Vite UI
 │
-└── AI Layer     → LLM (Ollama / GPT-OSS / OpenRouter)
+└── AI Layer     → Ollama (local or cloud), auth-aware
+```
 
-🔹 Backend
+### Backend
+- Python, FastAPI, SQLAlchemy (async)
+- Ollama integration for AI summaries (local models or Ollama Cloud)
+- Secrets + vulnerability scanning, metrics, architecture inference
+- Async task queue for background analysis
 
-Python
+### Frontend
+- React
+- Vite
+- Tailwind CSS
+- Live analysis progress, results dashboard, reports list
 
-FastAPI
+---
 
-LLM integration (Ollama GPT-OSS)
+## 🧠 Core Features
 
-Repository storage system
+- 📁 Repository ingestion — GitHub clone, ZIP upload, or local path
+- 🔒 Secrets & vulnerability scanning (Python AST-based + regex for
+  other languages)
+- 📊 Metrics, complexity, and a risk score
+- 🤖 AI-powered executive summary and per-file "explain this" endpoint
+- 📄 Export as JSON, Markdown, HTML, or PDF
+- 🖥️ CLI (`codeatlas analyze` / `codeatlas export`)
 
-Semantic understanding pipeline
+> **Not yet implemented** (despite sometimes being mentioned in early
+> planning docs): semantic/embedding-based code search, and an
+> OpenRouter fallback. Today the only LLM backend wired in is Ollama —
+> local or cloud, with `OLLAMA_API_KEY` sent automatically for cloud
+> models.
 
-🔹 Frontend
+---
 
-React
+## 🛠️ Tech Stack
 
-Vite
+**Frontend**: React, Vite, Tailwind CSS
 
-TailwindCSS
+**Backend**: Python, FastAPI, Uvicorn, SQLAlchemy (async, SQLite/Postgres)
 
-Modern responsive UI
+**AI**: Ollama (local or cloud)
 
-🧠 Core Features
+---
 
-📁 Repository ingestion & analysis
+## 🚀 Getting Started
 
-🤖 AI-powered code explanation
+### 1️⃣ Clone the repository
 
-🔍 Semantic search inside projects
-
-💡 Context-aware responses
-
-⚡ Fast local LLM support (via Ollama)
-
-🌐 API-based LLM fallback (OpenRouter supported)
-
-🛠️ Tech Stack
-
-Frontend
-
-React
-
-Vite
-
-TailwindCSS
-
-Backend
-
-Python
-
-FastAPI
-
-Uvicorn
-
-AI
-
-Ollama (GPT-OSS)
-
-OpenRouter APIs (optional hybrid mode)
-
-🚀 Getting Started
-1️⃣ Clone the Repository
+```bash
 git clone https://github.com/Abhinav-836/CodeAtlas.git
-cd CodeAtlas or https://github.com/Ananonymous-4637 /CodeAtlas.git
+cd CodeAtlas
+```
 
-2️⃣ Backend Setup
+### 2️⃣ Backend setup
+
+```bash
 cd backend
 python -m venv venv
+
+# macOS/Linux
+source venv/bin/activate
+# Windows
 venv\Scripts\activate
+
 pip install -r requirements.txt
-uvicorn main:app --reload
+cp .env.example .env   # edit as needed
 
+uvicorn app.main:app --reload
+```
 
-Backend runs on:
+Backend runs on: `http://127.0.0.1:8000`
+Interactive docs: `http://127.0.0.1:8000/docs` (when `DEBUG=True`)
 
-http://127.0.0.1:8000
+### 3️⃣ Frontend setup
 
-3️⃣ Frontend Setup
+```bash
 cd frontend
 npm install
 npm run dev
+```
 
+Frontend runs on: `http://localhost:5173`
 
-Frontend runs on:
+Set `VITE_API_URL` in the frontend's environment to point at the
+backend when deploying — without it, the app falls back to
+`http://localhost:8000`, which only works locally.
 
-http://localhost:5173
+### 4️⃣ Local LLM (optional)
+
+```bash
+ollama run gpt-oss:20b
+```
+
+Point `OLLAMA_BASE_URL` and `LLM_MODEL` at your instance in `.env`. For
+an Ollama Cloud model, also set `OLLAMA_API_KEY`.
+
+---
+
+## 🔐 Auth
+
+An `X-API-Key` dependency exists in `app/api/dependencies.py` but is
+**not currently applied to any route** — the API is open by default.
+Set a real `API_KEY` and add `dependencies=[Depends(get_api_key)]` to
+routes you want to lock down before deploying publicly.
+
+---
+
+## 🤝 Contributing
+
+Contributions welcome — fork the repo and open a pull request.
+
+## 📄 License
+
+MIT
+
+## 👨‍💻 Author
+
+**Abhinav Ashutosh**

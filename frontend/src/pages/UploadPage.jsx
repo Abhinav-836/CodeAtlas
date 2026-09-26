@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Button from "../components/UI/Button";
 import Card from "../components/UI/Card";
-import { uploadAPI, analyzeAPI } from "../utils/apiClient";
+import { uploadAPI } from "../utils/apiClient";
 import { useToast } from "../hooks/useToast";
 
 export default function UploadPage() {
@@ -43,11 +43,14 @@ export default function UploadPage() {
         extractedPath = uploadResponse.data.local_path;
       }
 
-      showToast("Upload successful! Starting analysis...", "success");
-      const analysisResponse = await analyzeAPI.startAnalysis(extractedPath);
-      const taskId = analysisResponse.data.task_id;
-      showToast("Analysis started successfully!", "success");
-      navigate(`/results/${taskId}`);
+      showToast("Upload successful!", "success");
+
+      // Hand off to AnalyzePage with the resolved path pre-filled, rather
+      // than starting the analysis here and jumping straight to /results.
+      // AnalyzePage already owns the "start analysis -> show progress ->
+      // navigate to /results" flow; duplicating it here just meant this
+      // page and /analyze could drift out of sync with each other.
+      navigate("/analyze", { state: { repositoryPath: extractedPath } });
     } catch (err) {
       console.error("Upload error:", err);
       const errorMessage =
@@ -283,8 +286,8 @@ export default function UploadPage() {
                     <span>🚀</span>
                     <span>
                       {uploadType === "zip"
-                        ? "Upload & Analyze"
-                        : "Analyze Repository"}
+                        ? "Upload & Continue"
+                        : "Clone & Continue"}
                     </span>
                   </span>
                 )}

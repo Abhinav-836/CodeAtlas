@@ -3,20 +3,14 @@
 echo "🚀 CodeAtlas Docker Setup with Ollama Cloud Model"
 echo "=================================================="
 
-# Create necessary directories
+# Create necessary directories. backend/ already contains the full
+# project (app/, cli/, scripts/, requirements.txt) - there's nothing to
+# assemble here, storage/ is the only thing that needs to exist first.
 echo "📁 Creating directories..."
-mkdir -p backend
 mkdir -p storage/{uploads,reports,exports,tmp,logs,task_results,repos}
 mkdir -p ollama_data
 mkdir -p postgres_data
 mkdir -p redis_data
-
-# Copy your backend files to backend/ directory
-echo "📋 Copying backend files..."
-# Assuming your files are in current directory
-cp *.py backend/ 2>/dev/null || true
-cp requirements.txt backend/ 2>/dev/null || true
-cp .env backend/ 2>/dev/null || true
 
 # Create .env file if it doesn't exist
 if [ ! -f "backend/.env" ]; then
@@ -40,6 +34,16 @@ ENABLE_AI_INSIGHTS="true"
 EOF
     echo "✅ .env file created"
 fi
+
+# Check Docker
+echo ""
+echo "Checking Docker..."
+if ! docker info > /dev/null 2>&1; then
+    echo "  ERROR: Docker is not running"
+    echo "  Please start Docker first"
+    exit 1
+fi
+echo "  Docker is running"
 
 # Start the containers
 echo "🐳 Starting Docker containers..."
