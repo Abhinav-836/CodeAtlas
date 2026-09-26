@@ -94,7 +94,12 @@ def _count_files_in_directory(directory: str) -> int:
 
 
 def _extract_github_info(url: str) -> Optional[Dict[str, str]]:
-    """Parse any GitHub URL format. Returns None if unparseable."""
+    """
+    Parse any GitHub URL. Returns None if unparseable.
+
+    Note: this intentionally does NOT guess a branch. The `branch` field
+    is only populated when the URL itself contains one (e.g. /tree/develop).
+    """
     if not url:
         return None
 
@@ -116,15 +121,17 @@ def _extract_github_info(url: str) -> Optional[Dict[str, str]]:
             groups = match.groups()
             username = groups[0]
             repo = groups[1].replace(".git", "")
-            branch = groups[2] if group_count == 3 and len(groups) > 2 else "main"
 
-            return {
+            info: Dict[str, str] = {
                 "repo_url": f"https://github.com/{username}/{repo}.git",
                 "repo_name": repo,
-                "branch": branch,
                 "username": username,
                 "original_url": url,
             }
+            # Only set branch when the URL explicitly contained one.
+            if group_count == 3 and len(groups) > 2:
+                info["branch"] = groups[2]
+            return info
 
     simple_match = re.search(r"([^/]+)/([^/]+)", url)
     if simple_match:
@@ -133,7 +140,6 @@ def _extract_github_info(url: str) -> Optional[Dict[str, str]]:
         return {
             "repo_url": f"https://github.com/{username}/{repo}.git",
             "repo_name": repo,
-            "branch": "main",
             "username": username,
             "original_url": url,
         }
@@ -155,21 +161,34 @@ async def upload_github(repo_url: str, branch: Optional[str] = None) -> Dict[str
         if repo_info:
             normalized_url = repo_info["repo_url"]
             repo_name = repo_info["repo_name"]
-            branch_to_use = branch or repo_info.get("branch", "main")
+            # Precedence: explicit query param > URL-embedded branch > None
+            # (None = "let git pick the remote's default branch").
+            branch_to_use = branch or repo_info.get("branch")
             print(f"✅ Parsed GitHub info: {repo_info}")
         else:
             normalized_url = repo_url
             repo_name = repo_url.split("/")[-1].replace(".git", "")
-            branch_to_use = branch or "main"
+            branch_to_use = branch
             print(f"⚠️ Could not parse URL, using as-is: {normalized_url}")
 
-        print(f"📦 Cloning repository: {normalized_url} (branch: {branch_to_use})")
+        print(
+            f"📦 Cloning repository: {normalized_url} "
+            f"(branch: {branch_to_use or 'default'})"
+        )
+
         result = clone_repo(normalized_url, branch=branch_to_use)
 
         if not result or not result.get("success"):
             error_msg = result.get("error", "Unknown error") if result else "Clone failed"
 
-            if ".git" in normalized_url and "not found" in error_msg.lower():
+            # Only retry without .git when the error suggests the URL is the
+            # problem, NOT when the branch is missing. A missing branch will
+            # fail identically on the retry.
+            if (
+                ".git" in normalized_url
+                and "not found" in error_msg.lower()
+                and "branch" not in error_msg.lower()
+            ):
                 alt_url = normalized_url.replace(".git", "")
                 print(f"🔄 Retrying without .git: {alt_url}")
                 result = clone_repo(alt_url, branch=branch_to_use)
@@ -182,12 +201,15 @@ async def upload_github(repo_url: str, branch: Optional[str] = None) -> Dict[str
                 )
 
         print(f"✅ Successfully cloned to: {result['path']}")
+
         return {
             "success": True,
             "repo_url": repo_url,
             "normalized_url": normalized_url,
             "repo_name": repo_name,
-            "branch": branch_to_use,
+            # This is the ACTUAL branch that was cloned, read back from git -
+            # not the one we requested. They can differ when we passed None.
+            "branch": result.get("branch", branch_to_use or "default"),
             "local_path": result["path"],
             "size_kb": result.get("size_kb", 0),
             "duration_seconds": result.get("duration_seconds", 0),

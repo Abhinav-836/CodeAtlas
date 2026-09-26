@@ -4,18 +4,15 @@ pydantic>=2.5.0
 pydantic-settings>=2.0.0
 python-dotenv>=1.0.0
 
-# Async DB
-sqlalchemy>=2.0.0
+# Async DB - the [asyncio] extra pulls in greenlet, required by
+# create_async_engine. Without it, app.db.session fails to import and
+# the app silently falls back to DB stubs.
+sqlalchemy[asyncio]>=2.0.0
 aiosqlite>=0.19.0
 
 # AI / LLM
 aiohttp>=3.9.0
 requests>=2.31.0
-
-# Embeddings (app/services/ai/embeddings.py) - numpy is imported
-# unconditionally at module load, openai only if OPENAI_API_KEY is set
-numpy>=1.24.0
-openai>=1.3.0
 
 # Uploads / file handling
 aiofiles>=23.2.0
@@ -39,5 +36,5 @@ rich>=13.0.0
 # System metrics
 psutil>=5.9.0
 
-# PDF export (optional but present in code paths)
+# PDF export
 reportlab>=4.0.0
