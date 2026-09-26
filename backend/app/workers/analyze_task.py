@@ -79,24 +79,39 @@ def analyze_repo(repo_path: str, options: Optional[Dict[str, Any]] = None) -> Di
         print("🕓 Scanning git history for secrets...")
         history_secrets_found = scan_secrets_git_history(repo_path)
         all_secrets = secrets_found + history_secrets_found
+        secrets_summary = summarize_secrets(all_secrets)
+
+        print("⚠️  Scanning for vulnerabilities...")
+        vulns = scan_vulnerabilities(all_files)
+        vulns_summary = summarize_vulnerabilities(vulns)
+
+        # secrets_summary and vulns_summary both use the keys
+        # total_findings / by_type / critical_findings / high_findings for
+        # their own (different) data. Flattening both into one dict via
+        # .update() silently drops one side - a repo with critical
+        # hardcoded secrets but zero flagged vulnerabilities would end up
+        # reporting zero critical findings overall. Keep each summary
+        # under its own key instead of merging them into the same names.
         result["security"] = {
             "secrets_found": len(all_secrets),
             "secrets_found_working_tree": len(secrets_found),
             "secrets_found_git_history": len(history_secrets_found),
             "secrets": all_secrets[:20],
+            "vulnerabilities_found": len(vulns),
+            "vulnerabilities": vulns[:20],
+            # Vulnerability severity counts - used directly by the results
+            # UI's security tab and pie chart.
+            "by_severity": vulns_summary.get("by_severity", {}),
+            "risk_level": secrets_summary.get("risk_level", "none"),
+            "secrets_summary": secrets_summary,
+            "vulnerabilities_summary": vulns_summary,
         }
-        result["security"].update(summarize_secrets(all_secrets))
 
-        print("⚠️  Scanning for vulnerabilities...")
-        vulns = scan_vulnerabilities(all_files)
-        result["security"]["vulnerabilities_found"] = len(vulns)
-        result["security"]["vulnerabilities"] = vulns[:20]
-        result["security"].update(summarize_vulnerabilities(vulns))
-
-        critical_findings = result["security"].get("critical_findings", 0)
+        secrets_critical = secrets_summary.get("critical_findings") or []
+        vulns_critical = vulns_summary.get("critical_findings") or []
         critical_count = (
-            len(critical_findings) if isinstance(critical_findings, list)
-            else (critical_findings if isinstance(critical_findings, (int, float)) else 0)
+            (len(secrets_critical) if isinstance(secrets_critical, list) else 0)
+            + (len(vulns_critical) if isinstance(vulns_critical, list) else 0)
         )
         result["security"]["overall_risk"] = (
             "critical" if critical_count > 0
@@ -207,7 +222,7 @@ def _analyze_languages(all_files: List[str]) -> Dict[str, Any]:
 
 def _calculate_overall_risk_score(result: Dict[str, Any]) -> int:
     """
-    Weighted 0–100 risk score. Every category of finding contributes so
+    Weighted 0-100 risk score. Every category of finding contributes so
     the score agrees with the recommendations panel.
     """
     score = 0
