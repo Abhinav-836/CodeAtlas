@@ -133,6 +133,8 @@ def _scan_line(
         candidate = match.group(1)
         if _is_false_positive(candidate):
             continue
+        if _looks_like_charset(candidate):
+            continue
         if _shannon_entropy(candidate) < 4.3:
             continue
 
@@ -161,6 +163,23 @@ def _redact_line(line: str, secret_value: str) -> str:
     elif "PRIVATE KEY" in redacted:
         redacted = "-----BEGIN PRIVATE KEY----- [redacted]"
     return redacted[:200]
+
+
+def _looks_like_charset(value: str) -> bool:
+    """
+    True for alphabet / charset constants such as
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'.
+
+    These have very high Shannon entropy (every character is distinct) so
+    the entropy check flags them, but they are not secrets. Real keys are
+    random, so consecutive characters are rarely adjacent in ASCII.
+    """
+    if len(value) < 10:
+        return False
+    sequential = sum(
+        1 for a, b in zip(value, value[1:]) if ord(b) - ord(a) == 1
+    )
+    return sequential / (len(value) - 1) >= 0.6
 
 def _shannon_entropy(value: str) -> float:
     if not value:
