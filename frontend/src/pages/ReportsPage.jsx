@@ -1,15 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import Button from "../components/UI/Button";
 import Card from "../components/UI/Card";
 import Loader from "../components/UI/Loader";
 import Modal from "../components/UI/Modal";
 import { reportsAPI } from "../utils/apiClient";
-import { API_URL } from "../utils/constants";
 
 export default function ReportsPage() {
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -23,9 +21,6 @@ export default function ReportsPage() {
   const [exportFormat, setExportFormat] = useState("json");
   const [busy, setBusy] = useState(false);
 
-  /* ======================
-     FETCH REPORTS
-  ====================== */
   const fetchReports = useCallback(async () => {
     try {
       setLoading(true);
@@ -42,24 +37,39 @@ export default function ReportsPage() {
 
   const fetchReportDetails = useCallback(async (reportId) => {
     try {
+      setErrorMsg("");
       const { data } = await reportsAPI.getReportSummary(reportId);
       setSelectedReport(data);
       setShowDetailModal(true);
     } catch (err) {
       console.error(err);
-      setErrorMsg("Report not found");
+      setErrorMsg(err?.response?.status === 404 ? "Report not found" : "Failed to load report");
     }
   }, []);
 
+  // Load the list once. Previously this depended on searchParams, so every
+  // "View" re-fetched the list, and View on the same report twice did nothing.
   useEffect(() => {
     fetchReports();
-    const reportId = searchParams.get("report");
-    if (reportId) fetchReportDetails(reportId);
-  }, [fetchReports, fetchReportDetails, searchParams]);
+  }, [fetchReports]);
 
-  /* ======================
-     ACTIONS
-  ====================== */
+  // Deep link support: /reports?report=<id> opens that report once.
+  const deepLinkId = searchParams.get("report");
+  useEffect(() => {
+    if (deepLinkId) fetchReportDetails(deepLinkId);
+  }, [deepLinkId, fetchReportDetails]);
+
+  const openReport = (reportId) => fetchReportDetails(reportId);
+
+  const closeDetail = () => {
+    setShowDetailModal(false);
+    if (searchParams.has("report")) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("report");
+      setSearchParams(next, { replace: true });
+    }
+  };
+
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!searchQuery.trim()) {
@@ -67,11 +77,15 @@ export default function ReportsPage() {
       return;
     }
     try {
-      const { data } = await reportsAPI.searchReports(searchQuery);
+      setLoading(true);
+      setErrorMsg("");
+      const { data } = await reportsAPI.searchReports(searchQuery.trim());
       setReports(data.reports ?? []);
     } catch (err) {
       console.error(err);
       setErrorMsg("Search failed");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -81,7 +95,7 @@ export default function ReportsPage() {
     try {
       await reportsAPI.deleteReport(selectedReport.id);
       setShowDeleteModal(false);
-      setShowDetailModal(false);
+      closeDetail();
       setSelectedReport(null);
       await fetchReports();
     } catch (err) {
@@ -96,8 +110,6 @@ export default function ReportsPage() {
     if (!selectedReport) return;
     setBusy(true);
     try {
-      // Simplest path: hit the download URL directly. No temp files on
-      // the server, no /api-prefix guesswork.
       const url = reportsAPI.downloadReportUrl(selectedReport.id, exportFormat);
       const link = document.createElement("a");
       link.href = url;
@@ -114,16 +126,10 @@ export default function ReportsPage() {
     }
   };
 
-  /* ======================
-     HELPERS
-  ====================== */
   const formatDate = (date) => {
     if (!date) return "-";
     try {
-      return new Date(date).toLocaleString("en-US", {
-        dateStyle: "medium",
-        timeStyle: "short",
-      });
+      return new Date(date).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
     } catch {
       return date;
     }
@@ -145,6 +151,10 @@ export default function ReportsPage() {
     );
   };
 
+  // Upload/clone folders end in _<8 hex>; strip it for display.
+  const displayName = (r) =>
+    (r.repo_name || r.path?.split(/[\\/]/).pop() || r.id || "Report").replace(/_[0-9a-f]{8}$/, "");
+
   const humanSize = (bytes) => {
     if (!bytes) return "0 B";
     const units = ["B", "KB", "MB", "GB"];
@@ -156,9 +166,6 @@ export default function ReportsPage() {
     return `${bytes.toFixed(1)} ${units[i]}`;
   };
 
-  /* ======================
-     RENDER
-  ====================== */
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">
       <h1 className="text-3xl font-bold mb-2">Analysis Reports</h1>
@@ -206,19 +213,11 @@ export default function ReportsPage() {
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
           {reports.map((r) => (
-            <Card
-              key={r.id}
-              className="cursor-pointer hover:shadow-lg transition-shadow"
-            >
-              <div
-                onClick={() => {
-                  setSelectedReport(r);
-                  setShowDetailModal(true);
-                }}
-              >
-                <div className="flex justify-between mb-2">
-                  <h3 className="font-bold truncate">
-                    {r.filename ?? r.id}
+            <Card key={r.id} className="cursor-pointer hover:shadow-lg transition-shadow">
+              <div onClick={() => openReport(r.id)}>
+                <div className="flex justify-between gap-2 mb-2">
+                  <h3 className="font-bold truncate" title={r.id}>
+                    {displayName(r)}
                   </h3>
                   {getSeverityBadge(r.risk_level)}
                 </div>
@@ -227,9 +226,7 @@ export default function ReportsPage() {
                   {r.path ?? "-"}
                 </p>
 
-                <p className="text-sm text-gray-500 mt-1">
-                  {formatDate(r.created)}
-                </p>
+                <p className="text-sm text-gray-500 mt-1">{formatDate(r.created)}</p>
 
                 <div className="grid grid-cols-2 gap-2 mt-4 text-center text-sm">
                   <div className="bg-gray-100 dark:bg-gray-800 p-2 rounded">
@@ -240,9 +237,7 @@ export default function ReportsPage() {
                   </div>
                 </div>
 
-                <div className="text-xs text-gray-500 mt-3">
-                  {humanSize(r.size_bytes)}
-                </div>
+                <div className="text-xs text-gray-500 mt-3">{humanSize(r.size_bytes)}</div>
               </div>
 
               <div className="flex gap-2 mt-4">
@@ -266,13 +261,7 @@ export default function ReportsPage() {
                 >
                   Delete
                 </Button>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() =>
-                    navigate(`/reports?report=${encodeURIComponent(r.id)}`)
-                  }
-                >
+                <Button size="sm" variant="secondary" onClick={() => openReport(r.id)}>
                   View
                 </Button>
               </div>
@@ -284,8 +273,8 @@ export default function ReportsPage() {
       {/* Detail Modal */}
       <Modal
         isOpen={showDetailModal}
-        onClose={() => setShowDetailModal(false)}
-        title={selectedReport?.filename ?? "Report"}
+        onClose={closeDetail}
+        title={selectedReport ? displayName(selectedReport) : "Report"}
         size="xl"
       >
         {selectedReport && (
@@ -307,31 +296,54 @@ export default function ReportsPage() {
               <span>{formatDate(selectedReport.created)}</span>
             </div>
             <div className="flex justify-between">
+              <span className="text-gray-500">Risk</span>
+              <span className="flex items-center gap-2">
+                {getSeverityBadge(selectedReport.risk_level)} {selectedReport.risk_score ?? 0}/100
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Files / Lines</span>
+              <span>
+                {selectedReport.files_analyzed ?? 0} / {(selectedReport.total_lines ?? 0).toLocaleString()}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Secrets / Vulnerabilities</span>
+              <span>
+                {selectedReport.secrets_found ?? 0} / {selectedReport.vulnerabilities_found ?? 0}
+              </span>
+            </div>
+            {selectedReport.primary_language && (
+              <div className="flex justify-between">
+                <span className="text-gray-500">Primary language</span>
+                <span>{selectedReport.primary_language}</span>
+              </div>
+            )}
+            <div className="flex justify-between">
               <span className="text-gray-500">Size</span>
               <span>{humanSize(selectedReport.size_bytes)}</span>
+            </div>
+            <div className="flex justify-end gap-2 pt-4">
+              <Button size="sm" variant="outline" onClick={() => setShowExportModal(true)}>
+                Export
+              </Button>
+              <Button size="sm" variant="danger" onClick={() => setShowDeleteModal(true)}>
+                Delete
+              </Button>
             </div>
           </div>
         )}
       </Modal>
 
       {/* Delete Confirmation */}
-      <Modal
-        isOpen={showDeleteModal}
-        onClose={() => setShowDeleteModal(false)}
-        title="Delete Report"
-        size="sm"
-      >
+      <Modal isOpen={showDeleteModal} onClose={() => setShowDeleteModal(false)} title="Delete Report" size="sm">
         <p className="mb-6">
           Are you sure you want to delete{" "}
-          <span className="font-mono">{selectedReport?.filename}</span>? This
+          <span className="font-mono">{selectedReport ? displayName(selectedReport) : ""}</span>? This
           cannot be undone.
         </p>
         <div className="flex justify-end gap-3">
-          <Button
-            variant="outline"
-            onClick={() => setShowDeleteModal(false)}
-            disabled={busy}
-          >
+          <Button variant="outline" onClick={() => setShowDeleteModal(false)} disabled={busy}>
             Cancel
           </Button>
           <Button variant="danger" onClick={handleDeleteReport} loading={busy}>
@@ -341,12 +353,7 @@ export default function ReportsPage() {
       </Modal>
 
       {/* Export Modal */}
-      <Modal
-        isOpen={showExportModal}
-        onClose={() => setShowExportModal(false)}
-        title="Export Report"
-        size="sm"
-      >
+      <Modal isOpen={showExportModal} onClose={() => setShowExportModal(false)} title="Export Report" size="sm">
         <div className="mb-6">
           <label className="block text-sm font-medium mb-2">Format</label>
           <select
@@ -361,11 +368,7 @@ export default function ReportsPage() {
           </select>
         </div>
         <div className="flex justify-end gap-3">
-          <Button
-            variant="outline"
-            onClick={() => setShowExportModal(false)}
-            disabled={busy}
-          >
+          <Button variant="outline" onClick={() => setShowExportModal(false)} disabled={busy}>
             Cancel
           </Button>
           <Button onClick={handleExportReport} loading={busy}>

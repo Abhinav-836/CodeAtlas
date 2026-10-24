@@ -178,6 +178,21 @@ def save_json_report(data: Dict[str, Any], report_id: Optional[str] = None) -> s
         raise RuntimeError(f"Failed to save JSON report: {str(e)}")
 
 
+def _report_stats(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Headline numbers, read from where the analyzer actually stores them."""
+    metrics = data.get('metrics', {}) or {}
+    summary = data.get('summary', {}) or {}
+    security = data.get('security', {}) or {}
+    return {
+        'risk_level': data.get('overall_risk_level') or metrics.get('risk', 'unknown'),
+        'risk_score': data.get('overall_risk_score', metrics.get('risk_score', 0)),
+        'files_analyzed': summary.get('files_analyzed', summary.get('total_files', 0)),
+        'total_lines': metrics.get('total_lines', 0),
+        'secrets_found': security.get('secrets_found', 0),
+        'vulnerabilities_found': security.get('vulnerabilities_found', 0),
+    }
+
+
 def get_report_list(limit: int = 50) -> Dict[str, Any]:
     """
     Get list of available reports.
@@ -221,7 +236,6 @@ def get_report_list(limit: int = 50) -> Dict[str, Any]:
             if not isinstance(data, dict):
                 continue
 
-            metrics = data.get('metrics', {}) or {}
             stat = json_file.stat()
 
             report_info = {
@@ -233,8 +247,8 @@ def get_report_list(limit: int = 50) -> Dict[str, Any]:
                 'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
                 'path': data.get('path', 'Unknown'),
                 'analysis_id': data.get('analysis_id', json_file.stem),
-                'risk_level': metrics.get('risk', 'unknown'),
-                'risk_score': metrics.get('risk_score', 0),
+                'repo_name': data.get('repo_name'),
+                **_report_stats(data),
             }
 
             reports.append(report_info)
@@ -314,7 +328,8 @@ def get_report_metadata(report_id: str) -> Optional[Dict[str, Any]]:
             'analysis_id': data.get('analysis_id', report_id),
             'status': data.get('status', 'unknown'),
             'timestamp': data.get('timestamp', 'unknown'),
-            'files_analyzed': data.get('files_analyzed', 0),
+            'repo_name': data.get('repo_name'),
+            **_report_stats(data),
         }
 
         return metadata

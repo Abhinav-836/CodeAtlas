@@ -16,3 +16,6 @@ __pycache__/
 node_modules/
 build/
 dist/
+backend/codeatlas.db
+backend/storage/
+frontend/.env.local

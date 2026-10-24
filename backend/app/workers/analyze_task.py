@@ -261,8 +261,8 @@ def _get_risk_level(score: int) -> str:
         return "high"
     if score >= 40:
         return "medium"
-    if score >= 20:
-        return "low"
+    if score > 0:
+        return "low"   # any finding is at least "low"
     return "none"
 
 

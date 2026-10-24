@@ -29,7 +29,10 @@ async def upload_zip(file: UploadFile = File(...)) -> Dict[str, Any]:
         await _validate_upload_file(file)
         print(f"📤 Uploading: {file.filename} ({file.content_type})")
 
-        extract_path = await extract_zip(file)
+        try:
+            extract_path = await extract_zip(file)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         if not extract_path:
             raise HTTPException(
                 status_code=400,

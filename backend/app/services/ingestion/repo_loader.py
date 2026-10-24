@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -94,9 +95,8 @@ def clone_repo(
 
         size_kb = _calculate_directory_size(clone_path) / 1024
 
-        final_dir = Path("storage/repos") / repo_name
-        if final_dir.exists():
-            shutil.rmtree(final_dir, ignore_errors=True)
+                # Unique folder per clone - same-name repos no longer delete each other.
+        final_dir = Path("storage/repos") / f"{repo_name}_{uuid.uuid4().hex[:8]}"
 
         final_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(clone_path), str(final_dir))

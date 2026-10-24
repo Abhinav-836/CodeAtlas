@@ -116,8 +116,7 @@ def _scan_line(
                 "value_preview": _mask_secret(secret_value),
                 "risk_score": risk_score,
                 "risk_level": _get_risk_level(risk_score),
-                "context": line.strip()[:200],
-                "full_match": match.group(0),
+                "context": _redact_line(line, secret_value),
             }
             if commit:
                 finding["commit"] = commit
@@ -145,8 +144,7 @@ def _scan_line(
             "value_preview": _mask_secret(candidate),
             "risk_score": risk_score,
             "risk_level": _get_risk_level(risk_score),
-            "context": line.strip()[:200],
-            "full_match": match.group(0),
+            "context": _redact_line(line, candidate),
         }
         if commit:
             finding["commit"] = commit
@@ -154,6 +152,15 @@ def _scan_line(
 
     return findings
 
+
+def _redact_line(line: str, secret_value: str) -> str:
+    """Return the line with the secret replaced by its masked preview."""
+    redacted = line.strip()
+    if secret_value and secret_value in redacted:
+        redacted = redacted.replace(secret_value, _mask_secret(secret_value))
+    elif "PRIVATE KEY" in redacted:
+        redacted = "-----BEGIN PRIVATE KEY----- [redacted]"
+    return redacted[:200]
 
 def _shannon_entropy(value: str) -> float:
     if not value:

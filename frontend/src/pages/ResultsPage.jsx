@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Button from "../components/UI/Button";
 import Card from "../components/UI/Card";
@@ -9,6 +9,8 @@ import ReactMarkdown from "react-markdown";
 import { SEVERITY_COLORS } from "../utils/constants";
 import { reportsAPI } from "../utils/apiClient";
 
+const fileName = (p) => p?.split(/[\\/]/).pop();
+
 const MarkdownBlock = ({ source }) => {
   const text =
     typeof source === "string"
@@ -16,36 +18,44 @@ const MarkdownBlock = ({ source }) => {
       : source?.summary || JSON.stringify(source, null, 2);
 
   return (
+    // react-markdown passes a `node` prop to every custom component.
+    // Spreading it onto DOM elements triggers React "invalid prop" warnings,
+    // so it is stripped in every renderer below.
     <ReactMarkdown
       components={{
-        h1: (props) => <h1 className="text-2xl font-bold mt-4 mb-2" {...props} />,
-        h2: (props) => <h2 className="text-xl font-semibold mt-3 mb-2" {...props} />,
-        h3: (props) => <h3 className="text-lg font-medium mt-2 mb-1" {...props} />,
-        p: (props) => <p className="text-gray-700 dark:text-gray-300 mb-3 leading-relaxed" {...props} />,
-        ul: (props) => <ul className="list-disc pl-6 mb-3 space-y-1" {...props} />,
-        ol: (props) => <ol className="list-decimal pl-6 mb-3 space-y-1" {...props} />,
-        li: (props) => <li className="text-gray-700 dark:text-gray-300" {...props} />,
-        strong: (props) => <strong className="font-semibold text-gray-900 dark:text-white" {...props} />,
-        // Tables get a clean look. If the LLM ever sneaks one through,
-        // it's readable rather than a wall of pipes.
-        table: (props) => (
+        h1: ({ node: _node, ...props }) => <h1 className="text-2xl font-bold mt-4 mb-2" {...props} />,
+        h2: ({ node: _node, ...props }) => <h2 className="text-xl font-semibold mt-3 mb-2" {...props} />,
+        h3: ({ node: _node, ...props }) => <h3 className="text-lg font-medium mt-2 mb-1" {...props} />,
+        p: ({ node: _node, ...props }) => <p className="text-gray-700 dark:text-gray-300 mb-3 leading-relaxed" {...props} />,
+        ul: ({ node: _node, ...props }) => <ul className="list-disc pl-6 mb-3 space-y-1" {...props} />,
+        ol: ({ node: _node, ...props }) => <ol className="list-decimal pl-6 mb-3 space-y-1" {...props} />,
+        li: ({ node: _node, ...props }) => <li className="text-gray-700 dark:text-gray-300" {...props} />,
+        strong: ({ node: _node, ...props }) => <strong className="font-semibold text-gray-900 dark:text-white" {...props} />,
+        table: ({ node: _node, ...props }) => (
           <div className="overflow-x-auto my-4">
             <table className="min-w-full border-collapse border border-gray-200 dark:border-gray-700 text-sm" {...props} />
           </div>
         ),
-        thead: (props) => <thead className="bg-gray-100 dark:bg-gray-800" {...props} />,
-        th: (props) => (
+        thead: ({ node: _node, ...props }) => <thead className="bg-gray-100 dark:bg-gray-800" {...props} />,
+        th: ({ node: _node, ...props }) => (
           <th className="border border-gray-200 dark:border-gray-700 px-3 py-2 text-left font-semibold" {...props} />
         ),
-        td: (props) => (
+        td: ({ node: _node, ...props }) => (
           <td className="border border-gray-200 dark:border-gray-700 px-3 py-2 align-top" {...props} />
         ),
-        code: ({ inline, ...props }) =>
-          inline ? (
-            <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded text-sm" {...props} />
+        // react-markdown v10 no longer passes `inline`; detect blocks instead.
+        code: ({ node: _node, className, children, ...props }) => {
+          const isBlock = /language-/.test(className || "") || String(children).includes("\n");
+          return isBlock ? (
+            <code className="block bg-gray-800 text-green-300 p-3 rounded-lg overflow-x-auto text-sm" {...props}>
+              {children}
+            </code>
           ) : (
-            <code className="block bg-gray-800 text-green-300 p-3 rounded-lg overflow-x-auto text-sm" {...props} />
-          ),
+            <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded text-sm" {...props}>
+              {children}
+            </code>
+          );
+        },
       }}
     >
       {text}
@@ -79,53 +89,8 @@ const ResultsPage = () => {
     window.open(reportsAPI.downloadReportUrl(result.report_id, "json"), "_blank", "noopener");
   };
 
-  if (status !== "completed" || !result) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700 py-12">
-        <div className="container mx-auto px-4 max-w-2xl">
-          <Card className="p-8 text-center bg-white/95 backdrop-blur">
-            <div className="mb-6">
-              <div className="w-24 h-24 mx-auto mb-4 relative">
-                <div className="absolute inset-0 rounded-full bg-blue-500 animate-ping opacity-20" />
-                <div className="absolute inset-2 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-center">
-                  <span className="text-4xl animate-pulse">🤖</span>
-                </div>
-              </div>
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">AI Analysis in Progress</h2>
-              <p className="text-gray-600 dark:text-gray-400">Please wait while our AI analyzes your code</p>
-            </div>
-            <div className="mb-8">
-              <div className="flex justify-between items-center mb-4">
-                <span className="text-lg font-semibold text-gray-700 dark:text-gray-300">Status:</span>
-                <span className="px-4 py-2 bg-blue-100 dark:bg-blue-900 rounded-full text-blue-800 dark:text-blue-200 font-medium capitalize">
-                  {status || "Starting..."}
-                </span>
-              </div>
-              <div className="mt-6">
-                <div className="flex justify-between text-sm mb-2">
-                  <span className="text-gray-600 dark:text-gray-400">Progress</span>
-                  <span className="font-bold text-blue-600 dark:text-blue-400">{progress}%</span>
-                </div>
-                <ProgressBar value={progress} max={100} className="h-4" />
-              </div>
-              <div className="mt-4 text-sm text-gray-500">
-                Task ID: <span className="font-mono">{taskId}</span>
-              </div>
-            </div>
-            {error && (
-              <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg mb-4">
-                <p className="text-red-600 dark:text-red-400">⚠️ {error}</p>
-              </div>
-            )}
-            <Button variant="outline" onClick={() => navigate("/upload")} className="mt-4">
-              Upload Another Repository
-            </Button>
-          </Card>
-        </div>
-      </div>
-    );
-  }
-
+  // MUST come before the "in progress" check. If it comes after, a failed
+  // analysis (status "failed", result null) shows the spinner forever.
   if (error) {
     const isTaskGone = typeof error === "string" && error.toLowerCase().includes("no longer available");
     return (
@@ -149,7 +114,59 @@ const ResultsPage = () => {
     );
   }
 
-  const aiInsights = result?.ai_insights;
+  if (status !== "completed" || !result) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700 py-12">
+        <div className="container mx-auto px-4 max-w-2xl">
+          <Card className="p-8 text-center bg-white/95 backdrop-blur">
+            <div className="mb-6">
+              <div className="w-24 h-24 mx-auto mb-4 relative">
+                <div className="absolute inset-0 rounded-full bg-blue-500 animate-ping opacity-20" />
+                <div className="absolute inset-2 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-center">
+                  <span className="text-4xl animate-pulse">🤖</span>
+                </div>
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">AI Analysis in Progress</h2>
+              <p className="text-gray-600 dark:text-gray-400">Please wait while our AI analyzes your code</p>
+            </div>
+            <div className="mb-8">
+              <div className="flex justify-between items-center mb-4">
+                <span className="text-lg font-semibold text-gray-700 dark:text-gray-300">Status:</span>
+                <span className="px-4 py-2 bg-blue-100 dark:bg-blue-900 rounded-full text-blue-800 dark:text-blue-200 font-medium capitalize">
+                  {status ? status.replace(/_/g, " ") : "Starting..."}
+                </span>
+              </div>
+              <div className="mt-6">
+                <div className="flex justify-between text-sm mb-2">
+                  <span className="text-gray-600 dark:text-gray-400">Progress</span>
+                  <span className="font-bold text-blue-600 dark:text-blue-400">{progress}%</span>
+                </div>
+                <ProgressBar value={progress} max={100} className="h-4" />
+              </div>
+              <div className="mt-4 text-sm text-gray-500 break-all">
+                Task ID: <span className="font-mono">{taskId}</span>
+              </div>
+            </div>
+            <Button variant="outline" onClick={() => navigate("/upload")} className="mt-4">
+              Upload Another Repository
+            </Button>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  // Only show the AI card for a real model response, not the
+  // "AI analysis unavailable" fallback text or an {error} object.
+  const rawAi = result?.ai_insights;
+  const aiInsights =
+    rawAi && rawAi.summary && !rawAi.fallback && !rawAi.error ? rawAi : null;
+  const aiUnavailable = Boolean(rawAi) && !aiInsights;
+  const secrets = result?.security?.secrets || [];
+  const issuesFound =
+    (result?.security?.vulnerabilities_found || 0) + (result?.security?.secrets_found || 0);
+  // Upload/clone folders end in _<8 hex>; strip it for display.
+  const repoName = (result?.repo_name || fileName(result?.path) || "Unknown").replace(/_[0-9a-f]{8}$/, "");
   const complexity = result?.complexity;
   const perLang = complexity?.per_language || {};
 
@@ -165,9 +182,7 @@ const ResultsPage = () => {
               </div>
               <div>
                 <h1 className="text-3xl font-bold text-gray-900 dark:text-white">AI Analysis Results</h1>
-                <p className="text-gray-600 dark:text-gray-400 mt-1">
-                  Repository: {result?.repo_name || result?.path?.split("/").pop() || "Unknown"}
-                </p>
+                <p className="text-gray-600 dark:text-gray-400 mt-1">Repository: {repoName}</p>
               </div>
             </div>
             <div className="flex gap-3">
@@ -184,11 +199,11 @@ const ResultsPage = () => {
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex flex-wrap gap-4 text-sm">
             <div className="flex items-center gap-2">
               <span className="text-gray-600 dark:text-gray-400">Analysis Time:</span>
-              <span className="font-bold">{result?.performance?.analysis_duration_seconds?.toFixed(2)}s</span>
+              <span className="font-bold">{result?.performance?.analysis_duration_seconds?.toFixed(2) ?? "-"}s</span>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-gray-600 dark:text-gray-400">Files Analyzed:</span>
-              <span className="font-bold">{result?.summary?.total_files}</span>
+              <span className="font-bold">{result?.summary?.total_files ?? 0}</span>
             </div>
           </div>
         </div>
@@ -203,7 +218,7 @@ const ResultsPage = () => {
             { icon: "🌐", color: "bg-purple-100 dark:bg-purple-900", numColor: "text-purple-600",
               value: result?.languages?.language_count || 0, label: "Languages" },
             { icon: "🔒", color: "bg-orange-100 dark:bg-orange-900", numColor: "text-orange-600",
-              value: result?.security?.vulnerabilities_found || 0, label: "Issues Found" },
+              value: issuesFound, label: "Issues Found" },
           ].map((s) => (
             <Card key={s.label} className="p-4 hover:shadow-lg transition-shadow">
               <div className="flex items-center gap-3">
@@ -276,10 +291,11 @@ const ResultsPage = () => {
                 </h3>
                 <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 space-y-3">
                   {[
-                    ["Total Files", result?.summary?.total_files],
-                    ["Total Lines", result?.metrics?.total_lines?.toLocaleString()],
-                    ["Languages", result?.languages?.language_count],
-                    ["Primary Language", result?.languages?.primary_language],
+                    ["Total Files", result?.summary?.total_files ?? 0],
+                    ["Total Lines", (result?.metrics?.total_lines ?? 0).toLocaleString()],
+                    ["Languages", result?.languages?.language_count ?? 0],
+                    ["Primary Language", result?.languages?.primary_language ?? "-"],
+                    ["Secrets / Vulnerabilities", `${result?.security?.secrets_found ?? 0} / ${result?.security?.vulnerabilities_found ?? 0}`],
                     ["Risk Score", `${riskScore}/100`],
                   ].map(([k, v]) => (
                     <div key={k} className="flex justify-between">
@@ -341,16 +357,47 @@ const ResultsPage = () => {
                 medium_issues: result?.security?.by_severity?.medium || 0,
                 low_issues: result?.security?.by_severity?.low || 0,
               }} />
+
+              {secrets.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-4">
+                    🔑 Possible Hardcoded Secrets ({result?.security?.secrets_found})
+                  </h3>
+                  <div className="space-y-4">
+                    {secrets.map((s, idx) => (
+                      <div key={idx} className="border-l-4 border-l-orange-500 pl-4 py-2">
+                        <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-mono text-sm bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded truncate">
+                              {fileName(s.file)}
+                            </span>
+                            <span className="text-sm text-gray-600 dark:text-gray-400">Line {s.line}</span>
+                            {s.commit && <span className="text-xs text-gray-500">commit {s.commit}</span>}
+                          </div>
+                          <span className={`px-2 py-1 rounded text-xs font-bold ${getSeverityBadge(s.risk_level)}`}>
+                            {s.type}
+                          </span>
+                        </div>
+                        {/* context is already redacted by the backend */}
+                        <pre className="mt-2 p-3 bg-gray-900 text-green-300 text-xs rounded-lg overflow-x-auto">
+                          {s.context}
+                        </pre>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {result?.security?.vulnerabilities?.length > 0 && (
                 <div>
                   <h3 className="text-lg font-semibold mb-4">🔍 Vulnerabilities</h3>
                   <div className="space-y-4">
                     {result.security.vulnerabilities.map((vuln, idx) => (
                       <div key={idx} className="border-l-4 border-l-red-500 pl-4 py-2">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center space-x-2">
-                            <span className="font-mono text-sm bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
-                              {vuln.file?.split("/").pop()}
+                        <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-mono text-sm bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded truncate">
+                              {fileName(vuln.file)}
                             </span>
                             <span className="text-sm text-gray-600 dark:text-gray-400">Line {vuln.line}</span>
                           </div>
@@ -365,6 +412,13 @@ const ResultsPage = () => {
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {secrets.length === 0 && !result?.security?.vulnerabilities?.length && (
+                <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                  <div className="text-4xl mb-2">✅</div>
+                  <p className="text-gray-600 dark:text-gray-400">No secrets or vulnerability patterns detected.</p>
                 </div>
               )}
             </div>
@@ -433,7 +487,7 @@ const ResultsPage = () => {
                       {complexity.most_complex_files.slice(0, 10).map((file, idx) => (
                         <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                           <div className="flex-1 min-w-0">
-                            <div className="font-medium truncate max-w-md">{file.file?.split("/").pop()}</div>
+                            <div className="font-medium truncate max-w-md" title={file.file}>{fileName(file.file)}</div>
                             <div className="flex gap-3 text-xs text-gray-600 dark:text-gray-400 mt-1 flex-wrap">
                               {file.language && <span className="px-2 py-0.5 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded">{file.language}</span>}
                               <span>Functions: {file.functions}</span>
@@ -461,22 +515,29 @@ const ResultsPage = () => {
             )
           )}
 
-          {activeTab === "languages" && result?.languages?.detected_languages && (
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold mb-4">🌐 Language Distribution</h3>
-              {Object.entries(result.languages.detected_languages).map(([lang, data]) => (
-                <div key={lang} className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="font-bold">{lang}</span>
-                    <span className="text-sm text-gray-600 dark:text-gray-400">{data.count} files</span>
+          {activeTab === "languages" && (
+            result?.languages?.detected_languages &&
+            Object.keys(result.languages.detected_languages).length > 0 ? (
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold mb-4">🌐 Language Distribution</h3>
+                {Object.entries(result.languages.detected_languages).map(([lang, data]) => (
+                  <div key={lang} className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="font-bold">{lang}</span>
+                      <span className="text-sm text-gray-600 dark:text-gray-400">{data.count} files</span>
+                    </div>
+                    <ProgressBar value={data.percentage} max={100} />
+                    <p className="text-right text-sm text-gray-600 dark:text-gray-400 mt-1">
+                      {data.percentage}% of codebase
+                    </p>
                   </div>
-                  <ProgressBar value={data.percentage} max={100} />
-                  <p className="text-right text-sm text-gray-600 dark:text-gray-400 mt-1">
-                    {data.percentage}% of codebase
-                  </p>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <p className="text-gray-600 dark:text-gray-400">No recognised languages in this repository.</p>
+              </div>
+            )
           )}
 
           {activeTab === "ai" && (
@@ -490,7 +551,11 @@ const ResultsPage = () => {
                 </div>
               ) : (
                 <div className="text-center py-12 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                  <p className="text-gray-600 dark:text-gray-400">AI insights not available</p>
+                  <p className="text-gray-600 dark:text-gray-400">
+                    {aiUnavailable
+                      ? "The AI service is not reachable right now, so only the static analysis is shown."
+                      : "AI insights not available"}
+                  </p>
                 </div>
               )}
             </div>

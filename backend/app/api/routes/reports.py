@@ -423,55 +423,45 @@ async def download_exported_file(filename: str):
 
 @router.get("/{report_id}/summary")
 async def get_report_summary(report_id: str) -> Dict[str, Any]:
+    metadata = await asyncio.to_thread(get_report_metadata, report_id)
+    if not metadata:
+        # Raised outside the try so it isn't turned into a 500.
+        raise HTTPException(404, detail=f"Report {report_id} not found")
+
+    report_file = Path(f"storage/reports/{report_id}.json")
+    if not report_file.exists():
+        return {**metadata, "content_available": False}
+
+    def load_report_for_summary():
+        with open(report_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        security = data.get("security", {}) or {}
+        complexity = data.get("complexity", {}) or {}
+        languages = data.get("languages", {}) or {}
+        summary = data.get("summary", {}) or {}
+        return {
+            **metadata,
+            "id": report_id,
+            "analysis_id": data.get("analysis_id", report_id),
+            "path": data.get("path", "Unknown"),
+            "repo_name": data.get("repo_name"),
+            "timestamp": data.get("timestamp", metadata.get("created")),
+            "status": data.get("status", "completed"),
+            "total_size_bytes": summary.get("total_size_bytes", 0),
+            "critical_issues": (security.get("by_severity") or {}).get("critical", 0),
+            "avg_complexity": complexity.get("avg_complexity_score", 0),
+            "primary_language": languages.get("primary_language"),
+            "language_count": languages.get("language_count", 0),
+            "recommendations": data.get("recommendations", []),
+            "size_human": _human_readable_size(metadata.get("size_bytes", 0)),
+        }
+
     try:
-        metadata = await asyncio.to_thread(get_report_metadata, report_id)
-        if not metadata:
-            raise HTTPException(404, detail=f"Report {report_id} not found")
-
-        report_file = Path(f"storage/reports/{report_id}.json")
-        if not report_file.exists():
-            return {"metadata": metadata, "content_available": False}
-
-        def load_report_for_summary():
-            with open(report_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                metrics = data.get("metrics", {})
-                security = data.get("security", {})
-                complexity = data.get("complexity", {})
-                dependencies = data.get("dependencies", {})
-
-                return {
-                    "id": report_id,
-                    "analysis_id": data.get("analysis_id", report_id),
-                    "path": data.get("path", "Unknown"),
-                    "timestamp": data.get("timestamp", metadata.get("created")),
-                    "status": data.get("status", "completed"),
-                    "files_analyzed": data.get("files_analyzed", 0),
-                    "total_lines": data.get("total_lines", 0),
-                    "total_size_bytes": data.get("total_size_bytes", 0),
-                    "risk_level": metrics.get("risk", "unknown"),
-                    "risk_score": metrics.get("risk_score", 0),
-                    "risk_factors": metrics.get("risk_factors", []),
-                    "secrets_found": security.get("secrets_found", 0),
-                    "vulnerabilities_found": security.get("vulnerabilities_found", 0),
-                    "critical_issues": security.get("critical_issues", 0),
-                    "avg_complexity": complexity.get("average_complexity", 0),
-                    "high_complexity_files": complexity.get("high_complexity_files", 0),
-                    "total_dependencies": dependencies.get("total", 0),
-                    "vulnerable_dependencies": dependencies.get("vulnerable", 0),
-                    "outdated_dependencies": dependencies.get("outdated", 0),
-                    "file_types": data.get("file_types", {}),
-                    "size_bytes": metadata.get("size_bytes", 0),
-                    "size_human": _human_readable_size(metadata.get("size_bytes", 0)),
-                    "created": metadata.get("created"),
-                    "modified": metadata.get("modified"),
-                }
-
         summary = await asyncio.to_thread(load_report_for_summary)
-        summary["content_available"] = True
-        return summary
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get summary: {str(e)}")
+    summary["content_available"] = True
+    return summary
 
 
 @router.post("/save")

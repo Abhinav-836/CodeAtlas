@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Button from "../components/UI/Button";
 import Card from "../components/UI/Card";
 import { uploadAPI } from "../utils/apiClient";
 import { useToast } from "../hooks/useToast";
+import { isValidGitHubUrl, isValidZipFile, validateFileSize } from "../utils/validators";
+import { MAX_FILE_SIZE_MB } from "../utils/constants";
 
 export default function UploadPage() {
   const navigate = useNavigate();
@@ -14,6 +16,31 @@ export default function UploadPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef(null);
+
+  // Validate on selection so the user doesn't wait for a 100MB upload
+  // just to be told it was the wrong type / too big.
+  const selectFile = (f) => {
+    setError("");
+    if (!f) return;
+    if (!isValidZipFile(f)) {
+      setError("Only .zip files are supported");
+      return;
+    }
+    if (!validateFileSize(f, MAX_FILE_SIZE_MB)) {
+      setError(`File is too large. Maximum size is ${MAX_FILE_SIZE_MB}MB`);
+      return;
+    }
+    setFile(f);
+  };
+
+  const clearFile = (e) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+    setFile(null);
+    // Reset the input so picking the SAME file again fires onChange.
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
 
   const handleUpload = async () => {
     setError("");
@@ -38,23 +65,28 @@ export default function UploadPage() {
           setLoading(false);
           return;
         }
+        if (!isValidGitHubUrl(githubUrl)) {
+          setError("That doesn't look like a GitHub repository URL");
+          setLoading(false);
+          return;
+        }
         // No forced branch - backend auto-detects.
-        const uploadResponse = await uploadAPI.uploadGithub(githubUrl);
+        const uploadResponse = await uploadAPI.uploadGithub(githubUrl.trim());
         extractedPath = uploadResponse.data.local_path;
       }
 
       showToast("Upload successful!", "success");
 
-      // Hand off to AnalyzePage with the resolved path pre-filled, rather
-      // than starting the analysis here and jumping straight to /results.
-      // AnalyzePage already owns the "start analysis -> show progress ->
-      // navigate to /results" flow; duplicating it here just meant this
-      // page and /analyze could drift out of sync with each other.
+      // Hand off to AnalyzePage with the resolved path pre-filled.
       navigate("/analyze", { state: { repositoryPath: extractedPath } });
     } catch (err) {
       console.error("Upload error:", err);
       const errorMessage =
-        err?.response?.data?.detail || err.message || "Upload failed";
+        err?.response?.data?.detail ||
+        (err?.code === "ERR_NETWORK"
+          ? "Cannot reach the CodeAtlas server. It may be waking up - please retry in a minute."
+          : err.message) ||
+        "Upload failed";
       setError(errorMessage);
       showToast(errorMessage, "error");
     } finally {
@@ -74,7 +106,7 @@ export default function UploadPage() {
     e.stopPropagation();
     setDragActive(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      setFile(e.dataTransfer.files[0]);
+      selectFile(e.dataTransfer.files[0]);
     }
   };
 
@@ -127,7 +159,8 @@ export default function UploadPage() {
           <div className="p-8">
             <div className="flex gap-3 mb-8 p-1.5 bg-gray-100 dark:bg-gray-800 rounded-2xl">
               <button
-                onClick={() => setUploadType("zip")}
+                type="button"
+                onClick={() => { setUploadType("zip"); setError(""); }}
                 className={`flex-1 py-3 px-4 rounded-xl font-medium transition-all ${
                   uploadType === "zip"
                     ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg shadow-indigo-500/30"
@@ -140,7 +173,8 @@ export default function UploadPage() {
                 </span>
               </button>
               <button
-                onClick={() => setUploadType("github")}
+                type="button"
+                onClick={() => { setUploadType("github"); setError(""); }}
                 className={`flex-1 py-3 px-4 rounded-xl font-medium transition-all ${
                   uploadType === "github"
                     ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg shadow-indigo-500/30"
@@ -156,7 +190,7 @@ export default function UploadPage() {
 
             {uploadType === "zip" ? (
               <div
-                className={`relative border-3 border-dashed rounded-2xl p-10 transition-all ${
+                className={`relative border-2 border-dashed rounded-2xl p-10 transition-all ${
                   dragActive
                     ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 scale-102"
                     : "border-gray-300 dark:border-gray-600 hover:border-indigo-400 dark:hover:border-indigo-500"
@@ -167,13 +201,16 @@ export default function UploadPage() {
                 onDrop={handleDrop}
               >
                 <input
+                  ref={fileInputRef}
                   type="file"
-                  accept=".zip"
-                  onChange={(e) => setFile(e.target.files[0])}
+                  accept=".zip,application/zip"
+                  onChange={(e) => selectFile(e.target.files[0])}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   id="file-upload"
                 />
-                <div className="text-center">
+                {/* Content sits above the invisible input but lets clicks
+                    fall through, except the Remove button. */}
+                <div className="relative z-10 text-center pointer-events-none">
                   <div className="text-7xl mb-4 animate-bounce">
                     {file ? "📄" : "📦"}
                   </div>
@@ -186,8 +223,9 @@ export default function UploadPage() {
                         {(file.size / 1024 / 1024).toFixed(2)} MB
                       </p>
                       <button
-                        onClick={() => setFile(null)}
-                        className="text-sm text-red-500 hover:text-red-700 font-medium"
+                        type="button"
+                        onClick={clearFile}
+                        className="pointer-events-auto text-sm text-red-500 hover:text-red-700 font-medium"
                       >
                         Remove file
                       </button>
@@ -201,7 +239,7 @@ export default function UploadPage() {
                         or click to browse
                       </p>
                       <div className="inline-flex items-center gap-2 text-xs text-gray-400">
-                        <span>Max size: 100MB</span>
+                        <span>Max size: {MAX_FILE_SIZE_MB}MB</span>
                         <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
                         <span>ZIP only</span>
                       </div>
@@ -228,7 +266,7 @@ export default function UploadPage() {
                   />
                 </div>
                 <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-                  <span>Any GitHub URL format works!</span>
+                  <span>Public repositories only. Any GitHub URL format works!</span>
                 </div>
                 <div className="text-xs text-gray-400 space-y-1">
                   <p className="font-medium text-gray-500 dark:text-gray-400">
@@ -255,42 +293,15 @@ export default function UploadPage() {
               <Button
                 onClick={handleUpload}
                 loading={loading}
-                disabled={loading || (uploadType === "zip" ? !file : !githubUrl)}
+                disabled={loading || (uploadType === "zip" ? !file : !githubUrl.trim())}
                 className="w-full py-4 text-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl shadow-lg shadow-indigo-500/30 transform hover:scale-105 transition-all"
               >
-                {loading ? (
-                  <span className="flex items-center justify-center gap-3">
-                    <svg
-                      className="animate-spin h-5 w-5"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                        fill="none"
-                      />
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                      />
-                    </svg>
-                    <span>Processing...</span>
+                <span className="flex items-center justify-center gap-3">
+                  <span>🚀</span>
+                  <span>
+                    {uploadType === "zip" ? "Upload & Continue" : "Clone & Continue"}
                   </span>
-                ) : (
-                  <span className="flex items-center justify-center gap-3">
-                    <span>🚀</span>
-                    <span>
-                      {uploadType === "zip"
-                        ? "Upload & Continue"
-                        : "Clone & Continue"}
-                    </span>
-                  </span>
-                )}
+                </span>
               </Button>
               <p className="text-center text-sm text-gray-500 dark:text-gray-400">
                 By uploading, you agree to our Terms of Service

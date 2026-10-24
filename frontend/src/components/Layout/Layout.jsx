@@ -1,5 +1,6 @@
-import Navbar from './Navbar';
-import Footer from './Footer';
+import Navbar from "./Navbar";
+import Footer from "./Footer";
+import Toaster from "../UI/Toaster";
 
 export default function Layout({ children }) {
   return (
@@ -7,6 +8,7 @@ export default function Layout({ children }) {
       <Navbar />
       <main className="pt-16">{children}</main>
       <Footer />
+      <Toaster />
     </div>
   );
 }

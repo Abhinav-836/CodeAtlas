@@ -1,13 +1,14 @@
 """
 Analysis endpoints.
 """
+import copy
 import os
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from app.core.config import settings
 from app.services.export.json import save_json_report
@@ -16,23 +17,61 @@ from app.workers.task_queue import task_queue
 
 router = APIRouter(prefix="/analyze")
 
+TASK_GONE_DETAIL = (
+    "This analysis is no longer available (the server may have restarted). "
+    "Please run it again."
+)
+
+
+# ── Path safety ───────────────────────────────────────────────────
+# Only directories that THIS server created (ZIP extractions and GitHub
+# clones) may be analyzed. Without this, POST /api/analyze?path=/ lets
+# anyone scan the server's own filesystem - including /app/.env - and
+# read the "secrets" findings back out of the public report.
+def _allowed_roots() -> List[Path]:
+    return [
+        Path(settings.UPLOAD_DIR).resolve(),
+        Path("storage/repos").resolve(),
+    ]
+
+
+def _resolve_safe_repo_path(path: str) -> Path:
+    if not path or not path.strip():
+        raise HTTPException(status_code=400, detail="Path is required")
+
+    repo_path = Path(path.strip()).resolve()
+
+    for root in _allowed_roots():
+        try:
+            rel = repo_path.relative_to(root)
+        except ValueError:
+            continue
+        if rel.parts:  # must be inside the root, not the root itself
+            break
+    else:
+        raise HTTPException(
+            status_code=403,
+            detail="Only repositories uploaded or cloned through CodeAtlas can be analyzed.",
+        )
+
+    if not repo_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Repository not found on the server. It may have been cleaned up - please upload it again.",
+        )
+    if not repo_path.is_dir():
+        raise HTTPException(status_code=400, detail="Path is not a directory")
+    return repo_path
+
 
 @router.post("", response_model=Dict[str, Any])
 async def analyze_repository(
     path: str,
-    background_tasks: BackgroundTasks,
     options: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    repo_path = _resolve_safe_repo_path(path)
+
     try:
-        repo_path = Path(path).resolve()
-
-        if not repo_path.exists():
-            raise HTTPException(status_code=400, detail=f"Path does not exist: {path}")
-        if not repo_path.is_dir():
-            raise HTTPException(
-                status_code=400, detail=f"Path is not a directory: {path}"
-            )
-
         analysis_id = str(uuid.uuid4())
 
         if options is None:
@@ -51,8 +90,6 @@ async def analyze_repository(
             options,
             analysis_id,
         )
-
-        print(f"✅ Task created with ID: {task_id}")
 
         analysis_info = {
             "analysis_id": analysis_id,
@@ -76,72 +113,56 @@ async def analyze_repository(
             "get_results_url": f"/api/analyze/results/{task_id}",
             "estimated_time": _estimate_analysis_time(repo_path, options),
         }
-
     except HTTPException:
         raise
     except Exception as e:
         print(f"❌ Error starting analysis: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to start analysis: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to start analysis: {str(e)}")
 
 
 def _run_analysis_with_options(
     path: str, options: Dict[str, Any], analysis_id: str
 ) -> Dict[str, Any]:
+    """
+    Runs inside the task queue's thread pool.
+
+    On failure this must RAISE, not return an error dict: the task queue
+    marks a task "completed" whenever the function returns, so returning
+    {"status": "failed"} made every failed analysis look successful.
+    """
+    print(f"🏃 Running analysis {analysis_id} for path: {path}")
+    result = analyze_repo(path)
+
+    if not isinstance(result, dict):
+        raise RuntimeError("Analysis returned an unexpected result")
+    if result.get("status") == "failed" or result.get("error"):
+        raise RuntimeError(result.get("error") or "Analysis failed")
+
+    result["analysis_id"] = analysis_id
+    result["options_used"] = options
+    result["status"] = "completed"
+    result["completed_at"] = datetime.now().isoformat()
+
     try:
-        print(f"🏃 Running analysis {analysis_id} for path: {path}")
-        result = analyze_repo(path)
-
-        if not isinstance(result, dict):
-            print(f"⚠️ analyze_repo returned non-dict: {type(result)}")
-            result = {
-                "raw_result": str(result) if result else "Empty result",
-                "analysis_id": analysis_id,
-                "path": path,
-                "status": "completed",
-            }
-        else:
-            result["analysis_id"] = analysis_id
-            result["options_used"] = options
-            result["status"] = "completed"
-            result["completed_at"] = datetime.now().isoformat()
-
-        try:
-            if isinstance(result, dict) and result.get("status") == "completed":
-                report_id = save_json_report(result)
-                result["report_id"] = report_id
-                result["report_url"] = f"/api/reports/{report_id}"
-                print(
-                    f"✅ Analysis {analysis_id} completed with report_id: {report_id}"
-                )
-            else:
-                print(f"⚠️ Analysis {analysis_id} status is not 'completed'")
-        except Exception as e:
-            print(f"⚠️ Failed to save report: {e}")
-            result["report_save_error"] = str(e)
-
-        return result
+        report_id = save_json_report(result)
+        result["report_id"] = report_id
+        result["report_url"] = f"/api/reports/{report_id}"
+        print(f"✅ Analysis {analysis_id} completed with report_id: {report_id}")
     except Exception as e:
-        print(f"❌ Analysis {analysis_id} failed: {str(e)}")
-        return {
-            "analysis_id": analysis_id,
-            "path": path,
-            "error": str(e),
-            "status": "failed",
-            "timestamp": datetime.now().isoformat(),
-        }
+        print(f"⚠️ Failed to save report: {e}")
+        result["report_save_error"] = str(e)
+
+    return result
 
 
 @router.get("/status/{task_id}")
 async def get_analysis_status(task_id: str) -> Dict[str, Any]:
+    status = task_queue.get_status(task_id)
+    if not status:
+        raise HTTPException(status_code=404, detail=TASK_GONE_DETAIL)
+
     try:
-        status = task_queue.get_status(task_id)
-        if not status:
-            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-
         analysis_info = _get_analysis_info_by_task(task_id)
-
         response = {
             "task_id": task_id,
             "status": status.get("status", "unknown"),
@@ -149,6 +170,9 @@ async def get_analysis_status(task_id: str) -> Dict[str, Any]:
             "completed_at": status.get("completed_at"),
             "function": status.get("function", "unknown"),
             "progress": status.get("progress", 0),
+            # The frontend reads data.error to explain failures; it was
+            # never sent before, so every failure just said "Analysis failed".
+            "error": status.get("error"),
         }
         if analysis_info:
             response.update(
@@ -159,12 +183,13 @@ async def get_analysis_status(task_id: str) -> Dict[str, Any]:
                 }
             )
         return response
-    except HTTPException:
-        raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to get status: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to get status: {str(e)}")
+
+
+def _has_real_ai_insights(result: Dict[str, Any]) -> bool:
+    ai = result.get("ai_insights")
+    return isinstance(ai, dict) and bool(ai.get("summary")) and not ai.get("fallback")
 
 
 @router.get("/results/{task_id}")
@@ -172,55 +197,54 @@ async def get_analysis_results(
     task_id: str,
     include_ai: bool = Query(False),
 ) -> Dict[str, Any]:
+    status = task_queue.get_status(task_id)
+    if not status:
+        raise HTTPException(status_code=404, detail=TASK_GONE_DETAIL)
+
+    if status.get("status") in {"queued", "running"}:
+        raise HTTPException(
+            status_code=425, detail=f"Analysis task {task_id} is still processing"
+        )
+
     try:
-        status = task_queue.get_status(task_id)
-        if not status:
-            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-
-        if status.get("status") == "running":
-            raise HTTPException(
-                status_code=425,
-                detail=f"Analysis task {task_id} is still processing",
-            )
-
-        result = await task_queue.get_result(task_id, timeout=30)
-        if result is None:
-            raise HTTPException(
-                status_code=404, detail=f"No results found for task {task_id}"
-            )
-
-        if include_ai:
-            try:
-                from app.services.ai.analyze_ai import enhance_with_ai
-
-                if settings.ENABLE_AI_INSIGHTS:
-                    result = await enhance_with_ai(result)
-            except ImportError as e:
-                print(f"⚠️ AI import failed: {e}")
-            except Exception as e:
-                print(f"⚠️ AI enhancement failed: {e}")
-
-        if not isinstance(result, dict):
-            result = {
-                "data": str(result) if result else "Empty result",
-                "status": "completed",
-                "task_id": task_id,
-                "raw_result_type": str(type(result)),
-            }
-
-        result["task_id"] = task_id
-        result["retrieved_at"] = datetime.now().isoformat()
-        return result
+        stored = await task_queue.get_result(task_id, timeout=30)
     except TimeoutError:
         raise HTTPException(
             status_code=408, detail=f"Timeout waiting for results of task {task_id}"
         )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to get results: {str(e)}"
-        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except ValueError:
+        raise HTTPException(status_code=404, detail=TASK_GONE_DETAIL)
+
+    if not isinstance(stored, dict):
+        raise HTTPException(status_code=404, detail=f"No results found for task {task_id}")
+
+    # Call the LLM once per task and cache it. Before, every results fetch
+    # (AnalyzePage, then ResultsPage, then every refresh) made a fresh LLM
+    # call of up to LLM_TIMEOUT seconds while the UI sat at 100%.
+    if include_ai and settings.ENABLE_AI_INSIGHTS and not _has_real_ai_insights(stored):
+        try:
+            from app.services.ai.analyze_ai import enhance_with_ai
+
+            enhanced = await enhance_with_ai(copy.deepcopy(stored))
+            ai = enhanced.get("ai_insights")
+            if ai:
+                stored["ai_insights"] = ai
+                if _has_real_ai_insights(stored) and stored.get("report_id"):
+                    try:
+                        save_json_report(stored, report_id=stored["report_id"])
+                    except Exception as e:
+                        print(f"⚠️ Could not persist AI insights: {e}")
+        except Exception as e:
+            print(f"⚠️ AI enhancement failed: {e}")
+
+    result = dict(stored)
+    if not include_ai:
+        result.pop("ai_insights", None)
+    result["task_id"] = task_id
+    result["retrieved_at"] = datetime.now().isoformat()
+    return result
 
 
 @router.get("/queue/stats")
@@ -229,8 +253,8 @@ async def get_queue_stats() -> Dict[str, Any]:
         tasks = task_queue.list_tasks()
         status_counts: Dict[str, int] = {}
         for task in tasks.values():
-            status = task.get("status", "unknown")
-            status_counts[status] = status_counts.get(status, 0) + 1
+            s = task.get("status", "unknown")
+            status_counts[s] = status_counts.get(s, 0) + 1
 
         running = sum(1 for t in tasks.values() if t.get("status") == "running")
         return {
@@ -240,9 +264,7 @@ async def get_queue_stats() -> Dict[str, Any]:
             "active_workers": min(running, getattr(task_queue, "max_workers", 0)),
         }
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to get queue stats: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to get queue stats: {str(e)}")
 
 
 @router.get("/recent")
@@ -276,20 +298,12 @@ async def get_recent_analyses(
                     }
                 )
             if task.get("status") == "completed":
-                try:
-                    result = await task_queue.get_result(task_id, timeout=1)
-                    if isinstance(result, dict):
-                        recent_task["has_results"] = True
-                        recent_task["result_status"] = result.get("status", "unknown")
-                except Exception:
-                    pass
+                recent_task["has_results"] = isinstance(task.get("result"), dict)
             recent_tasks.append(recent_task)
 
         return {"analyses": recent_tasks, "total": len(recent_tasks), "limit": limit}
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to get recent analyses: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to get recent analyses: {str(e)}")
 
 
 # ── In-memory analysis metadata store ─────────────────────────────
@@ -318,10 +332,9 @@ def _get_analysis_info_by_task(task_id: str) -> Optional[Dict[str, Any]]:
 def _estimate_analysis_time(repo_path: Path, options: Dict[str, Any]) -> int:
     try:
         file_count = 0
-        for root, dirs, files in os.walk(repo_path):
+        for _root, dirs, files in os.walk(repo_path):
             dirs[:] = [
-                d
-                for d in dirs
+                d for d in dirs
                 if d not in {".git", "__pycache__", "node_modules", "venv", ".venv"}
             ]
             file_count += len(files)
