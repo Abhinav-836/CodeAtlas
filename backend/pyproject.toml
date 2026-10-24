@@ -94,7 +94,7 @@ Changelog = "https://github.com/codeatlas-dev/codeatlas/releases"
 # NOTE: entry points now point at scripts that actually exist.
 [project.scripts]
 codeatlas = "cli.maincli:main"
-codeatlas-api = "app.main:run"
+codeatlas-api = "main:run"
 
 [tool.black]
 line-length = 88
