@@ -6,6 +6,8 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 from datetime import datetime
 
+from app.core.owner import OWNER_KEY, same_owner
+
 
 def export_json(report_id: str, report_data: Optional[Dict[str, Any]] = None) -> str:
     """
@@ -19,11 +21,9 @@ def export_json(report_id: str, report_data: Optional[Dict[str, Any]] = None) ->
         JSON string
     """
     try:
-        # If report_data is provided, use it
         if report_data:
             data = report_data
         else:
-            # Try to load from file
             data = _load_report_from_file(report_id)
             if not data:
                 return json.dumps({
@@ -31,13 +31,8 @@ def export_json(report_id: str, report_data: Optional[Dict[str, Any]] = None) ->
                     "status": "not_found"
                 }, indent=2)
 
-        # Add export metadata
         data = _add_export_metadata(data, report_id)
-
-        # Convert to JSON
-        json_str = json.dumps(data, indent=2, default=str)
-
-        return json_str
+        return json.dumps(data, indent=2, default=str)
 
     except Exception as e:
         error_data = {
@@ -58,7 +53,6 @@ def _load_report_from_file(report_id: str) -> Optional[Dict[str, Any]]:
     Returns:
         Report data or None if not found
     """
-    # Try multiple possible locations
     possible_paths = [
         Path(f"storage/reports/{report_id}.json"),
         Path(f"storage/reports/{report_id}"),
@@ -71,7 +65,6 @@ def _load_report_from_file(report_id: str) -> Optional[Dict[str, Any]]:
             try:
                 with open(path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                # Validate it's a report
                 if isinstance(data, dict) and ('path' in data or 'analysis_id' in data):
                     return data
             except (json.JSONDecodeError, IOError, UnicodeDecodeError):
@@ -94,33 +87,18 @@ def _add_export_metadata(data: Dict[str, Any], report_id: str) -> Dict[str, Any]
     if not isinstance(data, dict):
         return data
 
-    # Create enhanced copy
     enhanced = data.copy()
-
-    # Add export info
     enhanced['_export'] = {
         'format': 'json',
         'exported_at': datetime.now().isoformat(),
         'report_id': report_id,
         'version': '1.0'
     }
-
-    # Ensure all data is JSON serializable
-    enhanced = _make_json_serializable(enhanced)
-
-    return enhanced
+    return _make_json_serializable(enhanced)
 
 
 def _make_json_serializable(obj: Any) -> Any:
-    """
-    Recursively make object JSON serializable.
-
-    Args:
-        obj: Any object
-
-    Returns:
-        JSON serializable version
-    """
+    """Recursively make object JSON serializable."""
     if isinstance(obj, dict):
         return {k: _make_json_serializable(v) for k, v in obj.items()}
     elif isinstance(obj, list):
@@ -132,7 +110,6 @@ def _make_json_serializable(obj: Any) -> Any:
     elif isinstance(obj, Path):
         return str(obj)
     else:
-        # Try to convert to string, fall back to repr
         try:
             return str(obj)
         except Exception:
@@ -153,26 +130,20 @@ def save_json_report(data: Dict[str, Any], report_id: Optional[str] = None) -> s
     import uuid
 
     if report_id is None:
-        # Generate report ID from analysis data
         if 'analysis_id' in data:
             report_id = data['analysis_id']
         else:
             report_id = f"report_{uuid.uuid4().hex[:8]}"
 
-    # Ensure storage directory exists
     reports_dir = Path("storage/reports")
     reports_dir.mkdir(parents=True, exist_ok=True)
 
-    # Add metadata
     data = _add_export_metadata(data, report_id)
-
-    # Save to file
     filename = reports_dir / f"{report_id}.json"
 
     try:
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, default=str)
-
         return report_id
     except Exception as e:
         raise RuntimeError(f"Failed to save JSON report: {str(e)}")
@@ -193,18 +164,13 @@ def _report_stats(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def get_report_list(limit: int = 50) -> Dict[str, Any]:
+def get_report_list(limit: int = 50, owner: Optional[str] = None) -> Dict[str, Any]:
     """
-    Get list of available reports.
-
-    Reads each report file in full and pulls out the summary fields
-    needed for the list view. Report files are typically small (tens of
-    KB), so this is cheap - the previous "read first 5 lines and glue on
-    a closing brace" approach was faster in theory but never actually
-    produced valid JSON, so it silently skipped every report.
+    Get list of available reports, newest first.
 
     Args:
         limit: Maximum number of reports to return
+        owner: If given, only reports stamped with this owner hash
 
     Returns:
         Dictionary with report list
@@ -212,16 +178,10 @@ def get_report_list(limit: int = 50) -> Dict[str, Any]:
     reports_dir = Path("storage/reports")
 
     if not reports_dir.exists():
-        return {
-            "reports": [],
-            "total": 0,
-            "limit": limit
-        }
+        return {"reports": [], "total": 0, "limit": limit}
 
     reports = []
 
-    # Newest first, so a `limit` cutoff shows the most recent reports
-    # rather than whatever glob() happens to yield first.
     json_files = sorted(
         reports_dir.glob("*.json"),
         key=lambda p: p.stat().st_mtime,
@@ -234,6 +194,11 @@ def get_report_list(limit: int = 50) -> Dict[str, Any]:
                 data = json.load(f)
 
             if not isinstance(data, dict):
+                continue
+
+            # Only the caller's own reports. Reports with no owner (made
+            # before ownership existed) are visible to nobody.
+            if owner is not None and not same_owner(data.get(OWNER_KEY), owner):
                 continue
 
             stat = json_file.stat()
@@ -259,25 +224,12 @@ def get_report_list(limit: int = 50) -> Dict[str, Any]:
         except (IOError, json.JSONDecodeError, UnicodeDecodeError):
             continue
 
-    return {
-        "reports": reports,
-        "total": len(reports),
-        "limit": limit
-    }
+    return {"reports": reports, "total": len(reports), "limit": limit}
 
 
 def delete_report(report_id: str) -> bool:
-    """
-    Delete a report.
-
-    Args:
-        report_id: Report ID
-
-    Returns:
-        True if deleted, False otherwise
-    """
-    reports_dir = Path("storage/reports")
-    report_file = reports_dir / f"{report_id}.json"
+    """Delete a report file. Returns True if deleted."""
+    report_file = Path("storage/reports") / f"{report_id}.json"
 
     if not report_file.exists():
         return False
@@ -291,18 +243,10 @@ def delete_report(report_id: str) -> bool:
 
 def get_report_metadata(report_id: str) -> Optional[Dict[str, Any]]:
     """
-    Get report metadata.
+    Get report metadata, or None if not found.
 
-    Loads the full file rather than reading a fixed byte prefix and
-    gluing on a closing brace - that reconstruction never produced valid
-    JSON for a real (nested) report, so every call used to fail and
-    return None, making every endpoint that depends on this 404.
-
-    Args:
-        report_id: Report ID
-
-    Returns:
-        Report metadata or None if not found
+    NOTE: does not check ownership - callers that serve this to a user
+    must check it (the reports router does).
     """
     report_file = Path(f"storage/reports/{report_id}.json")
 
@@ -318,7 +262,7 @@ def get_report_metadata(report_id: str) -> Optional[Dict[str, Any]]:
 
         stat = report_file.stat()
 
-        metadata = {
+        return {
             'id': report_id,
             'filename': report_file.name,
             'size_bytes': stat.st_size,
@@ -331,8 +275,6 @@ def get_report_metadata(report_id: str) -> Optional[Dict[str, Any]]:
             'repo_name': data.get('repo_name'),
             **_report_stats(data),
         }
-
-        return metadata
 
     except (IOError, json.JSONDecodeError, UnicodeDecodeError):
         return None

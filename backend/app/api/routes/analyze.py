@@ -2,15 +2,17 @@
 Analysis endpoints.
 """
 import copy
+import json
 import os
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.config import settings
+from app.core.owner import OWNER_KEY, get_owner, owns_folder, same_owner, strip_owner
 from app.services.export.json import save_json_report
 from app.workers.analyze_task import analyze_repo
 from app.workers.task_queue import task_queue
@@ -35,7 +37,7 @@ def _allowed_roots() -> List[Path]:
     ]
 
 
-def _resolve_safe_repo_path(path: str) -> Path:
+def _resolve_safe_repo_path(path: str, owner: str) -> Path:
     if not path or not path.strip():
         raise HTTPException(status_code=400, detail="Path is required")
 
@@ -54,22 +56,55 @@ def _resolve_safe_repo_path(path: str) -> Path:
             detail="Only repositories uploaded or cloned through CodeAtlas can be analyzed.",
         )
 
-    if not repo_path.exists():
+    # Same 404 for "missing" and "someone else's", so other people's
+    # upload names can't be probed.
+    if not repo_path.is_dir() or not owns_folder(str(repo_path), owner):
         raise HTTPException(
             status_code=404,
             detail="Repository not found on the server. It may have been cleaned up - please upload it again.",
         )
-    if not repo_path.is_dir():
-        raise HTTPException(status_code=400, detail="Path is not a directory")
     return repo_path
+
+
+def _task_owner(status: Dict[str, Any]) -> Optional[str]:
+    """Owner hash of a task: the 4th positional arg of _run_analysis_with_options."""
+    args = status.get("args") or ()
+    if isinstance(args, (list, tuple)) and len(args) >= 4:
+        return args[3]
+    result = status.get("result")
+    if isinstance(result, dict):
+        return result.get(OWNER_KEY)
+    return None
+
+
+def _get_owned_task(task_id: str, owner: str) -> Dict[str, Any]:
+    status = task_queue.get_status(task_id)
+    # Unknown task and someone else's task look identical to the caller.
+    if not status or not same_owner(_task_owner(status), owner):
+        raise HTTPException(status_code=404, detail=TASK_GONE_DETAIL)
+    return status
+
+
+def _relativize_paths(result: Dict[str, Any], repo_root: str) -> Dict[str, Any]:
+    """
+    Replace the server's absolute repo path (e.g. /opt/render/project/src/
+    backend/storage/repos/x_1a2b3c4d/...) with paths relative to the repo,
+    everywhere in the result. Users see "src/app.py" instead of the
+    server's directory layout.
+    """
+    prefix = str(Path(repo_root)) + os.sep
+    escaped = json.dumps(prefix)[1:-1]  # same escaping as inside the JSON
+    text = json.dumps(result, default=str).replace(escaped, "")
+    return json.loads(text)
 
 
 @router.post("", response_model=Dict[str, Any])
 async def analyze_repository(
     path: str,
     options: Optional[Dict[str, Any]] = None,
+    owner: str = Depends(get_owner),
 ) -> Dict[str, Any]:
-    repo_path = _resolve_safe_repo_path(path)
+    repo_path = _resolve_safe_repo_path(path, owner)
 
     try:
         analysis_id = str(uuid.uuid4())
@@ -89,6 +124,7 @@ async def analyze_repository(
             str(repo_path),
             options,
             analysis_id,
+            owner,
         )
 
         analysis_info = {
@@ -96,6 +132,7 @@ async def analyze_repository(
             "task_id": task_id,
             "path": str(repo_path),
             "options": options,
+            "owner": owner,
             "status": "queued",
             "created_at": datetime.now().isoformat(),
             "check_status_url": f"/api/analyze/status/{task_id}",
@@ -121,7 +158,7 @@ async def analyze_repository(
 
 
 def _run_analysis_with_options(
-    path: str, options: Dict[str, Any], analysis_id: str
+    path: str, options: Dict[str, Any], analysis_id: str, owner: str
 ) -> Dict[str, Any]:
     """
     Runs inside the task queue's thread pool.
@@ -138,10 +175,13 @@ def _run_analysis_with_options(
     if result.get("status") == "failed" or result.get("error"):
         raise RuntimeError(result.get("error") or "Analysis failed")
 
+    result = _relativize_paths(result, path)
+    result["path"] = Path(path).name
     result["analysis_id"] = analysis_id
     result["options_used"] = options
     result["status"] = "completed"
     result["completed_at"] = datetime.now().isoformat()
+    result[OWNER_KEY] = owner
 
     try:
         report_id = save_json_report(result)
@@ -156,10 +196,11 @@ def _run_analysis_with_options(
 
 
 @router.get("/status/{task_id}")
-async def get_analysis_status(task_id: str) -> Dict[str, Any]:
-    status = task_queue.get_status(task_id)
-    if not status:
-        raise HTTPException(status_code=404, detail=TASK_GONE_DETAIL)
+async def get_analysis_status(
+    task_id: str,
+    owner: str = Depends(get_owner),
+) -> Dict[str, Any]:
+    status = _get_owned_task(task_id, owner)
 
     try:
         analysis_info = _get_analysis_info_by_task(task_id)
@@ -178,7 +219,6 @@ async def get_analysis_status(task_id: str) -> Dict[str, Any]:
             response.update(
                 {
                     "analysis_id": analysis_info.get("analysis_id"),
-                    "path": analysis_info.get("path"),
                     "options": analysis_info.get("options"),
                 }
             )
@@ -196,10 +236,9 @@ def _has_real_ai_insights(result: Dict[str, Any]) -> bool:
 async def get_analysis_results(
     task_id: str,
     include_ai: bool = Query(False),
+    owner: str = Depends(get_owner),
 ) -> Dict[str, Any]:
-    status = task_queue.get_status(task_id)
-    if not status:
-        raise HTTPException(status_code=404, detail=TASK_GONE_DETAIL)
+    status = _get_owned_task(task_id, owner)
 
     if status.get("status") in {"queued", "running"}:
         raise HTTPException(
@@ -239,7 +278,7 @@ async def get_analysis_results(
         except Exception as e:
             print(f"⚠️ AI enhancement failed: {e}")
 
-    result = dict(stored)
+    result = strip_owner(stored)
     if not include_ai:
         result.pop("ai_insights", None)
     result["task_id"] = task_id
@@ -270,9 +309,14 @@ async def get_queue_stats() -> Dict[str, Any]:
 @router.get("/recent")
 async def get_recent_analyses(
     limit: int = Query(10, ge=1, le=100),
+    owner: str = Depends(get_owner),
 ) -> Dict[str, Any]:
+    """The caller's own recent analyses."""
     try:
-        tasks = task_queue.list_tasks()
+        tasks = {
+            tid: t for tid, t in task_queue.list_tasks(limit=10000).items()
+            if same_owner(_task_owner(t), owner)
+        }
         recent_tasks = []
 
         sorted_tasks = sorted(
@@ -294,7 +338,7 @@ async def get_recent_analyses(
                 recent_task.update(
                     {
                         "analysis_id": analysis_info.get("analysis_id"),
-                        "path": analysis_info.get("path"),
+                        "repo_name": Path(analysis_info.get("path") or "").name,
                     }
                 )
             if task.get("status") == "completed":

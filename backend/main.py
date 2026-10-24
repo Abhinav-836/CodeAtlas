@@ -11,7 +11,6 @@ from typing import Any, Dict
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
@@ -407,12 +406,11 @@ async def root() -> Dict[str, Any]:
     }
 
 
-# The real /health lives in app/api/routes/health.py (CPU/memory/uptime
-# data) and is included below via app.include_router(routers["health"], ...).
-# This fallback is only registered when that router failed to import -
-# registering it unconditionally would permanently shadow the real one,
-# since FastAPI/Starlette matches routes in registration order and this
-# would have been added first.
+# The real /health lives in app/api/routes/health.py and is included
+# below via app.include_router(routers["health"], ...). This fallback is
+# only registered when that router failed to import - registering it
+# unconditionally would permanently shadow the real one, since
+# FastAPI/Starlette matches routes in registration order.
 if "health" not in routers:
     @app.get("/health", include_in_schema=False)
     async def health_check_fallback():
@@ -424,16 +422,10 @@ if "health" not in routers:
         }
 
 
-for mount_path, directory, name in [
-    ("/static", "storage", "static"),
-    ("/uploads", settings.UPLOAD_DIR, "uploads"),
-    ("/reports", settings.REPORT_DIR, "reports"),
-    ("/exports", settings.EXPORT_DIR, "exports"),
-]:
-    try:
-        app.mount(mount_path, StaticFiles(directory=directory, html=(name == "static")), name=name)
-    except Exception as e:
-        logger.debug("Mount %s skipped: %s", mount_path, e)
+# NOTE: storage/ used to be mounted as public static folders here
+# (/uploads, /reports, /exports, /static). That served every user's
+# uploaded source code and every report straight off disk, bypassing all
+# ownership checks. All access now goes through the API routes.
 
 
 # -------------------------------------------------
@@ -451,7 +443,11 @@ if "auth" in routers:
     app.include_router(routers["auth"], tags=["auth"], prefix="/api")
 if "webhooks" in routers:
     app.include_router(routers["webhooks"], tags=["webhooks"], prefix="/api")
-if "ai" in routers:
+# The /api/ai endpoints (ask, explain, chat, models/switch) are a free,
+# unauthenticated proxy to YOUR LLM account, and /models/switch changes
+# the model for every user. The web app doesn't use them, so they are
+# only available in local development.
+if "ai" in routers and settings.DEBUG:
     app.include_router(routers["ai"], prefix="/api", tags=["ai"])
 if "admin" in routers and settings.DEBUG:
     app.include_router(routers["admin"], tags=["admin"], prefix="/api/admin")
@@ -460,25 +456,9 @@ if "admin" in routers and settings.DEBUG:
 # -------------------------------------------------
 # WebSockets
 # -------------------------------------------------
-@app.websocket("/ws/status/{task_id}")
-async def websocket_status(websocket: WebSocket, task_id: str):
-    await ws_manager.connect(websocket, task_id)
-    try:
-        while True:
-            status = task_queue.get_status(task_id)
-            if not status:
-                await websocket.send_json({"error": "Task not found", "task_id": task_id})
-                break
-            await websocket.send_json({**status, "timestamp": time.time()})
-            if status.get("status") in {"completed", "failed", "cancelled"}:
-                break
-            await asyncio.sleep(2)
-    except WebSocketDisconnect:
-        logger.info("WebSocket disconnected for task %s", task_id)
-    except Exception as e:
-        logger.error("WebSocket error for task %s: %s", task_id, e)
-    finally:
-        ws_manager.disconnect(task_id)
+# /ws/status/{task_id} was removed: it streamed the full task record
+# (server paths, owner, complete results) to anyone who knew a task id,
+# with no ownership check. The frontend polls /api/analyze/status instead.
 
 
 @app.websocket("/ws/notifications")
@@ -512,14 +492,14 @@ def custom_openapi():
         routes=app.routes,
     )
     schema.setdefault("components", {})["securitySchemes"] = {
-        "ApiKeyAuth": {
+        "OwnerToken": {
             "type": "apiKey",
             "in": "header",
-            "name": "X-API-Key",
-            "description": "API Key for authentication",
+            "name": "X-Owner-Token",
+            "description": "Per-browser owner token (any random 32-128 char string)",
         }
     }
-    schema["security"] = [{"ApiKeyAuth": []}]
+    schema["security"] = [{"OwnerToken": []}]
     schema["tags"] = [
         {"name": "health", "description": "Health checks"},
         {"name": "analyze", "description": "Code analysis"},

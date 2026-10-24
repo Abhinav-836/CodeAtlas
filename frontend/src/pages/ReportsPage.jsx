@@ -29,7 +29,7 @@ export default function ReportsPage() {
       setReports(data.reports ?? []);
     } catch (err) {
       console.error(err);
-      setErrorMsg("Failed to load reports");
+      setErrorMsg(err?.response?.data?.detail || "Failed to load reports");
     } finally {
       setLoading(false);
     }
@@ -100,7 +100,7 @@ export default function ReportsPage() {
       await fetchReports();
     } catch (err) {
       console.error(err);
-      setErrorMsg("Failed to delete report");
+      setErrorMsg(err?.response?.data?.detail || "Failed to delete report");
     } finally {
       setBusy(false);
     }
@@ -110,17 +110,12 @@ export default function ReportsPage() {
     if (!selectedReport) return;
     setBusy(true);
     try {
-      const url = reportsAPI.downloadReportUrl(selectedReport.id, exportFormat);
-      const link = document.createElement("a");
-      link.href = url;
-      link.rel = "noopener";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      // Through axios so the owner token is sent (a plain link can't).
+      await reportsAPI.downloadReport(selectedReport.id, exportFormat);
       setShowExportModal(false);
     } catch (err) {
       console.error(err);
-      setErrorMsg("Export failed");
+      setErrorMsg(err?.response?.data?.detail || "Export failed");
     } finally {
       setBusy(false);
     }
@@ -169,8 +164,12 @@ export default function ReportsPage() {
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">
       <h1 className="text-3xl font-bold mb-2">Analysis Reports</h1>
-      <p className="text-gray-600 dark:text-gray-400 mb-8">
+      <p className="text-gray-600 dark:text-gray-400 mb-2">
         View and manage your code analysis reports
+      </p>
+      <p className="text-sm text-gray-500 dark:text-gray-500 mb-8">
+        🔒 Reports are private to this browser. Clearing site data or using another
+        browser starts a fresh, empty list.
       </p>
 
       <Card className="mb-6">
@@ -222,8 +221,10 @@ export default function ReportsPage() {
                   {getSeverityBadge(r.risk_level)}
                 </div>
 
-                <p className="text-sm text-gray-500 truncate" title={r.path}>
-                  {r.path ?? "-"}
+                {/* The server no longer exposes its absolute storage path,
+                    so show the findings summary here instead. */}
+                <p className="text-sm text-gray-500 truncate">
+                  {r.secrets_found ?? 0} secrets · {r.vulnerabilities_found ?? 0} vulnerabilities
                 </p>
 
                 <p className="text-sm text-gray-500 mt-1">{formatDate(r.created)}</p>
@@ -282,10 +283,6 @@ export default function ReportsPage() {
             <div className="flex justify-between">
               <span className="text-gray-500">ID</span>
               <span className="font-mono">{selectedReport.id}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Path</span>
-              <span className="truncate max-w-md">{selectedReport.path}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-500">Analysis ID</span>

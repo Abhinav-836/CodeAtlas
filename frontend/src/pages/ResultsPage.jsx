@@ -5,6 +5,7 @@ import Card from "../components/UI/Card";
 import ProgressBar from "../components/UI/ProgressBar";
 import AnalysisChart from "../components/Charts/AnalysisChart";
 import { useAnalysis } from "../hooks/useAnalysis";
+import { useToast } from "../hooks/useToast";
 import ReactMarkdown from "react-markdown";
 import { SEVERITY_COLORS } from "../utils/constants";
 import { reportsAPI } from "../utils/apiClient";
@@ -66,6 +67,7 @@ const MarkdownBlock = ({ source }) => {
 const ResultsPage = () => {
   const { taskId } = useParams();
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState("overview");
   const [aiExpanded, setAiExpanded] = useState(false);
   const { status, progress, results: result, error } = useAnalysis(taskId);
@@ -82,11 +84,21 @@ const ResultsPage = () => {
   const getSeverityBadge = (severity) =>
     SEVERITY_COLORS[severity] || SEVERITY_COLORS.info;
 
+  const [downloading, setDownloading] = useState(false);
   const canDownload = Boolean(result?.report_id);
 
-  const handleDownload = () => {
-    if (!canDownload) return;
-    window.open(reportsAPI.downloadReportUrl(result.report_id, "json"), "_blank", "noopener");
+  // Goes through axios so the owner token header is sent; window.open()
+  // can't send headers and would now get a 401.
+  const handleDownload = async () => {
+    if (!canDownload || downloading) return;
+    setDownloading(true);
+    try {
+      await reportsAPI.downloadReport(result.report_id, "json");
+    } catch (err) {
+      showToast(err?.response?.data?.detail || "Download failed", "error");
+    } finally {
+      setDownloading(false);
+    }
   };
 
   // MUST come before the "in progress" check. If it comes after, a failed
@@ -563,7 +575,7 @@ const ResultsPage = () => {
         </Card>
 
         <div className="flex flex-wrap justify-center gap-4 mt-8">
-          <Button onClick={handleDownload} disabled={!canDownload} variant="primary"
+          <Button onClick={handleDownload} disabled={!canDownload} loading={downloading} variant="primary"
             className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700">
             <span className="flex items-center gap-2">
               <span>⬇️</span><span>{canDownload ? "Download JSON" : "Download unavailable"}</span>
