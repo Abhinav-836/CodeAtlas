@@ -4,7 +4,7 @@ JSON export for analysis reports.
 import json
 from typing import Dict, Any, Optional
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.owner import OWNER_KEY, same_owner
 
@@ -208,8 +208,8 @@ def get_report_list(limit: int = 50, owner: Optional[str] = None) -> Dict[str, A
                 'filename': json_file.name,
                 'size_kb': stat.st_size / 1024,
                 'size_bytes': stat.st_size,
-                'created': datetime.fromtimestamp(stat.st_ctime).isoformat(),
-                'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                'created': datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc).isoformat(),
+                'modified': datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
                 'path': data.get('path', 'Unknown'),
                 'analysis_id': data.get('analysis_id', json_file.stem),
                 'repo_name': data.get('repo_name'),
@@ -266,8 +266,8 @@ def get_report_metadata(report_id: str) -> Optional[Dict[str, Any]]:
             'id': report_id,
             'filename': report_file.name,
             'size_bytes': stat.st_size,
-            'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
-            'created': datetime.fromtimestamp(stat.st_ctime).isoformat(),
+            'modified': datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            'created': datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc).isoformat(),
             'path': data.get('path', 'Unknown'),
             'analysis_id': data.get('analysis_id', report_id),
             'status': data.get('status', 'unknown'),

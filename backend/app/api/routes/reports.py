@@ -9,7 +9,7 @@ both return the same 404, so report IDs can't be probed.
 import asyncio
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -65,8 +65,8 @@ def _file_meta(report_id: str) -> Dict[str, Any]:
     return {
         "size_bytes": stat.st_size,
         "size_human": _human_readable_size(stat.st_size),
-        "created": datetime.fromtimestamp(stat.st_ctime).isoformat(),
-        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+        "created": datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc).isoformat(),
+        "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
     }
 
 
