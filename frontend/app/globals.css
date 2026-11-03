@@ -1,0 +1,209 @@
+@import "tailwindcss";
+
+/*
+ * CodeAtlas palette — survey-map paper, slate ink, contour green and
+ * map-legend hazard colours. Tokens flip for dark mode below.
+ */
+:root {
+  --paper: #eef1ec;
+  --surface: #f8faf6;
+  --ink: #17242b;
+  --muted: #56666c;
+  --rule: #c9d2cb;
+  --contour: #a9bdae;
+  --accent: #1f5f7a;
+  --accent-ink: #ffffff;
+  --critical: #a8261c;
+  --high: #b85a14;
+  --medium: #8f700b;
+  --low: #2f6f4a;
+  --none: #6b7b80;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #10181c;
+    --surface: #162127;
+    --ink: #e4eae5;
+    --muted: #97a7a2;
+    --rule: #2a3940;
+    --contour: #2c4640;
+    --accent: #79b8d2;
+    --accent-ink: #0d1a20;
+    --critical: #f2837a;
+    --high: #f0a463;
+    --medium: #e2c35c;
+    --low: #84c79c;
+    --none: #8a9a9f;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-rule: var(--rule);
+  --color-contour: var(--contour);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-critical: var(--critical);
+  --color-high: var(--high);
+  --color-medium: var(--medium);
+  --color-low: var(--low);
+  --color-none: var(--none);
+
+  --font-display: "Bricolage Grotesque Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Instrument Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, monospace;
+}
+
+html {
+  background: var(--paper);
+  color: var(--ink);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: 1.6;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* Contour lines draw in once on first load — the page's single motion moment. */
+.contour-line {
+  stroke-dasharray: 2400;
+  stroke-dashoffset: 2400;
+  animation: draw 2.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .contour-line {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* Markdown from the AI summary */
+.prose-atlas {
+  max-width: 70ch;
+}
+.prose-atlas h1,
+.prose-atlas h2,
+.prose-atlas h3 {
+  margin: 1.6em 0 0.5em;
+}
+.prose-atlas h1 {
+  font-size: 1.5rem;
+}
+.prose-atlas h2 {
+  font-size: 1.25rem;
+}
+.prose-atlas h3 {
+  font-size: 1.05rem;
+}
+.prose-atlas > :first-child {
+  margin-top: 0;
+}
+.prose-atlas p,
+.prose-atlas ul,
+.prose-atlas ol {
+  margin: 0 0 1em;
+}
+.prose-atlas ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+}
+.prose-atlas ol {
+  list-style: decimal;
+  padding-left: 1.25rem;
+}
+.prose-atlas li {
+  margin: 0.25em 0;
+}
+.prose-atlas strong {
+  font-weight: 600;
+}
+.prose-atlas a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.prose-atlas code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: color-mix(in srgb, var(--rule) 55%, transparent);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+.prose-atlas pre {
+  background: var(--ink);
+  color: var(--paper);
+  padding: 1rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0 0 1em;
+}
+.prose-atlas pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+.prose-atlas table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  margin: 0 0 1em;
+  display: block;
+  overflow-x: auto;
+}
+.prose-atlas th,
+.prose-atlas td {
+  border-bottom: 1px solid var(--rule);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+.prose-atlas th {
+  font-weight: 600;
+}
