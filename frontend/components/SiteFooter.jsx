@@ -9,7 +9,7 @@ export default function SiteFooter() {
             href="https://github.com/Abhinav-836"
             className="text-ink underline decoration-rule underline-offset-4 hover:decoration-ink"
           >
-            Abhinav
+            Abhinav Ashutosh
           </a>
         </p>
       </div>
