@@ -1,5 +1,7 @@
 # CodeAtlas
 
+[![CI](https://github.com/Abhinav-836/CodeAtlas/actions/workflows/ci.yml/badge.svg)](https://github.com/Abhinav-836/CodeAtlas/actions/workflows/ci.yml)
+
 Point CodeAtlas at a GitHub repo or a ZIP of your project and get a report back: leaked secrets (including ones deleted from git history), common vulnerability patterns, code metrics and complexity, language breakdown, an overall risk score, and an AI-written summary of what the codebase does.
 
 **Live:** [code-atlas-nine.vercel.app](https://code-atlas-nine.vercel.app)
@@ -137,6 +139,16 @@ frontend/
   lib/                   API client, owner token, polling hook
 ```
 
+## Tests
+
+```bash
+cd backend
+pip install -r requirements.txt pytest httpx
+python -m pytest
+```
+
+They upload a small sample project as a ZIP, run a full analysis and check the results: languages, the planted secret (found and masked), the risk score, that server paths never leak, and that one visitor can't see another's uploads, tasks or reports. They also cover ZIP path-traversal rejection and the analyse-path allowlist. No LLM is needed. GitHub Actions runs them and builds the frontend on every push.
+
 ## Limitations
 
 - Vulnerability detection is pattern-based, not a full static analyser — treat findings as things to look at, not proof of a bug.
@@ -147,3 +159,7 @@ frontend/
 ---
 
 Built by **Abhinav Ashutosh** · [GitHub](https://github.com/Abhinav-836)
+
+## License
+
+MIT. See [LICENSE](LICENSE).

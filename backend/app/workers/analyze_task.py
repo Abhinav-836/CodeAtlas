@@ -228,8 +228,22 @@ def _calculate_overall_risk_score(result: Dict[str, Any]) -> int:
     score = 0
     security = result.get("security", {}) or {}
 
+    # Secrets are weighted by their own risk level. Before, every secret
+    # counted a flat 5 points and by_severity only holds *vulnerability*
+    # counts, so a live API key committed to the repo scored 5/100 "low".
     secrets = security.get("secrets_found", 0) or 0
-    score += min(secrets * 5, 30)
+    secret_risk = ((security.get("secrets_summary") or {}).get("by_risk") or {})
+    if secret_risk:
+        score += min(
+            # One committed live credential alone makes the repo "high" risk.
+            secret_risk.get("critical", 0) * 60
+            + secret_risk.get("high", 0) * 25
+            + secret_risk.get("medium", 0) * 8
+            + secret_risk.get("low", 0) * 2,
+            70,
+        )
+    else:
+        score += min(secrets * 5, 30)
 
     by_sev = security.get("by_severity", {}) or {}
     score += min(by_sev.get("critical", 0) * 15, 30)
