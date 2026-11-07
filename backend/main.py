@@ -186,12 +186,6 @@ def import_router(router_name: str):
             from app.api.routes.health import router
         elif router_name == "ai":
             from app.api.routes.ai import router
-        elif router_name == "auth":
-            from app.api.routes.auth import router
-        elif router_name == "webhooks":
-            from app.api.routes.webhooks import router
-        elif router_name == "admin":
-            from app.api.routes.admin import router
         else:
             logger.warning("Unknown router requested: %s", router_name)
             return None
@@ -199,8 +193,7 @@ def import_router(router_name: str):
         logger.info("✅ Imported router: %s", router_name)
         return router
     except ImportError as e:
-        if router_name not in {"admin"} or settings.DEBUG:
-            logger.warning("⚠️ Could not import router '%s': %s", router_name, e)
+        logger.warning("⚠️ Could not import router '%s': %s", router_name, e)
         return None
     except Exception as e:
         logger.error("❌ Error importing router '%s': %s", router_name, e)
@@ -208,9 +201,9 @@ def import_router(router_name: str):
 
 
 routers: Dict[str, Any] = {}
-router_names = ["health", "analyze", "upload", "reports", "auth", "webhooks", "ai"]
-if settings.DEBUG:
-    router_names.append("admin")
+# auth, webhooks and admin were listed here too, but those route files
+# were never written, so every start-up logged "Could not import router".
+router_names = ["health", "analyze", "upload", "reports", "ai"]
 
 for name in router_names:
     r = import_router(name)
@@ -439,18 +432,12 @@ if "upload" in routers:
     app.include_router(routers["upload"], tags=["upload"], prefix="/api")
 if "reports" in routers:
     app.include_router(routers["reports"], tags=["reports"], prefix="/api")
-if "auth" in routers:
-    app.include_router(routers["auth"], tags=["auth"], prefix="/api")
-if "webhooks" in routers:
-    app.include_router(routers["webhooks"], tags=["webhooks"], prefix="/api")
 # The /api/ai endpoints (ask, explain, chat, models/switch) are a free,
 # unauthenticated proxy to YOUR LLM account, and /models/switch changes
 # the model for every user. The web app doesn't use them, so they are
 # only available in local development.
 if "ai" in routers and settings.DEBUG:
     app.include_router(routers["ai"], prefix="/api", tags=["ai"])
-if "admin" in routers and settings.DEBUG:
-    app.include_router(routers["admin"], tags=["admin"], prefix="/api/admin")
 
 
 # -------------------------------------------------
@@ -505,8 +492,6 @@ def custom_openapi():
         {"name": "analyze", "description": "Code analysis"},
         {"name": "upload", "description": "File uploads"},
         {"name": "reports", "description": "Reports"},
-        {"name": "auth", "description": "Authentication"},
-        {"name": "webhooks", "description": "Webhooks"},
         {"name": "ai", "description": "AI-powered features"},
     ]
     app.openapi_schema = schema
