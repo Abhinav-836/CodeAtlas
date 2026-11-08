@@ -6,6 +6,8 @@ import logging
 import os
 
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
@@ -18,6 +20,21 @@ logging.basicConfig(level=logging.INFO)
 # ── Configuration ──────────────────────────────────────────────────
 DATABASE_URL = settings.database_url  # normalizes sqlite -> sqlite+aiosqlite
 is_sqlite = DATABASE_URL.startswith("sqlite+aiosqlite")
+
+# ── Check the URL first, with an error that says what to fix ───────
+try:
+    _parsed = make_url(DATABASE_URL)
+except ArgumentError:
+    raise RuntimeError(
+        "DATABASE_URL isn't a valid database connection string. It should look like "
+        "postgresql://USER:PASSWORD@HOST/DBNAME?sslmode=require (for Neon: Dashboard → Connect → "
+        "copy the connection string, not the psql command). Check the value in your host's "
+        "environment settings."
+    ) from None
+if not _parsed.drivername.startswith(("sqlite", "postgresql")):
+    raise RuntimeError(
+        f"DATABASE_URL uses an unsupported database ({_parsed.drivername}). Use PostgreSQL or SQLite."
+    )
 
 # ── Async Engine ───────────────────────────────────────────────────
 async_engine = create_async_engine(

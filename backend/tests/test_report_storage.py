@@ -115,3 +115,41 @@ def test_database_url_normalisation():
     s.DATABASE_URL = "sqlite:///./x.db"
     assert s.database_url == "sqlite+aiosqlite:///./x.db"
     assert sync_url(s.database_url) == "sqlite:///./x.db"
+
+
+
+def test_pasted_database_urls_are_cleaned_up():
+    """Copy-paste accidents that used to crash start-up with 'Could not parse SQLAlchemy URL'."""
+    from sqlalchemy.engine import make_url
+
+    from app.core.config import Settings
+
+    neon = "postgresql://neondb_owner:npg_AbC123@ep-cool-sun-a1b2c3-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+    s = Settings()
+    for pasted in (
+        f"psql '{neon}'",          # Neon's "psql" tab
+        f"'{neon}'",
+        f'"{neon}"',
+        f"  {neon}\n",
+        f"DATABASE_URL={neon}",
+        f"DATABASE_URL='{neon}'",
+    ):
+        s.DATABASE_URL = pasted
+        url = make_url(s.database_url)  # must parse
+        assert url.drivername == "postgresql+psycopg", pasted
+        assert url.host.endswith("neon.tech") and url.database == "neondb"
+        assert url.query["sslmode"] == "require"
+
+
+def test_unusable_database_url_gives_a_clear_error():
+    import subprocess
+    import sys
+
+    code = "import app.db.session"
+    for bad, expected in (("not a url at all", "isn't a valid database connection string"),
+                          ("mysql://u:p@h/db", "unsupported database")):
+        env = {**__import__("os").environ, "DATABASE_URL": bad}
+        r = subprocess.run([sys.executable, "-c", code], cwd=str(Path(__file__).resolve().parents[1]),
+                           env=env, capture_output=True, text=True)
+        assert r.returncode != 0 and expected in r.stderr, r.stderr[-500:]
+        assert "u:p@" not in r.stderr  # the password is never printed

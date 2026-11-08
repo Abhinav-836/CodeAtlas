@@ -8,6 +8,25 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def clean_database_url(raw: Optional[str]) -> str:
+    """
+    Undo the usual copy-paste accidents with connection strings, which make
+    SQLAlchemy fail at start-up with "Could not parse SQLAlchemy URL":
+    - Neon's "psql" snippet:      psql 'postgresql://...'
+    - quotes around the value:    "postgresql://..."  or  'postgresql://...'
+    - the variable name included: DATABASE_URL=postgresql://...
+    - spaces or a newline around it
+    """
+    url = (raw or "").strip()
+    if url.upper().startswith("DATABASE_URL="):
+        url = url[len("DATABASE_URL="):].strip()
+    if url.lower().startswith("psql "):
+        url = url[5:].strip()
+    while len(url) >= 2 and url[0] == url[-1] and url[0] in "'\"":
+        url = url[1:-1].strip()
+    return url
+
+
 class Settings:
     """Application settings."""
 
@@ -70,7 +89,7 @@ class Settings:
     @property
     def database_url(self) -> str:
         """Get database URL with async support."""
-        url = self.DATABASE_URL.strip()
+        url = clean_database_url(self.DATABASE_URL)
         # One Postgres driver (psycopg 3) for both the async app and the sync
         # report store. It understands Neon's ?sslmode=require&channel_binding=require.
         for prefix in ("postgres://", "postgresql://", "postgresql+asyncpg://", "postgresql+psycopg2://"):
