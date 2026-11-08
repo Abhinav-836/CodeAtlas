@@ -25,6 +25,9 @@ async_engine = create_async_engine(
     echo=settings.DEBUG,
     future=True,
     poolclass=NullPool if is_sqlite else None,
+    pool_pre_ping=not is_sqlite,
+    # Neon's pooled endpoint is PgBouncer, which can't keep prepared statements.
+    connect_args={} if is_sqlite else {"prepare_threshold": None},
 )
 
 AsyncSessionLocal = async_sessionmaker(
@@ -37,9 +40,11 @@ AsyncSessionLocal = async_sessionmaker(
 # ── Sync Session Factory (PostgreSQL only) ─────────────────────────
 if not is_sqlite:
     sync_engine = create_engine(
-        DATABASE_URL.replace("+asyncpg", ""),
+        DATABASE_URL,  # postgresql+psycopg works synchronously too
         echo=settings.DEBUG,
         future=True,
+        pool_pre_ping=True,
+        connect_args={"prepare_threshold": None},
     )
     SessionLocal = sessionmaker(
         bind=sync_engine,
@@ -81,6 +86,7 @@ def get_db():
 # ── DB Utilities ───────────────────────────────────────────────────
 async def init_db() -> None:
     from app.db.models import Base
+    import app.services.report_store  # noqa: F401  (registers the stored_reports table)
 
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -97,7 +103,7 @@ async def check_db_health() -> dict:
         async with AsyncSessionLocal() as session:
             result = await session.execute(text("SELECT 1"))
             result.scalar()
-            return {"status": "healthy", "database": DATABASE_URL.split("://")[0]}
+            return {"status": "healthy", "database": DATABASE_URL.split("://")[0]}  # never the URL: it has the password
     except Exception as e:
         logger.error("Database health check failed: %s", e)
         return {

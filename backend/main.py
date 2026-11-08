@@ -246,6 +246,20 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error("❌ Database initialization failed: %s", e)
 
+        # Reports used to be files in storage/reports; move any into the database.
+        try:
+            from app.services import report_store
+            await asyncio.to_thread(report_store.import_files, settings.REPORT_DIR)
+            db_kind = "PostgreSQL" if "postgresql" in settings.database_url else "SQLite"
+            logger.info("✅ Reports are stored in %s", db_kind)
+            if db_kind == "SQLite" and not settings.DEBUG:
+                logger.warning(
+                    "⚠️ Reports are in SQLite on local disk. On hosts that wipe the disk on deploy "
+                    "(e.g. Render free), set DATABASE_URL to a Postgres database so they persist."
+                )
+        except Exception as e:
+            logger.error("❌ Report storage check failed: %s", e)
+
         try:
             await task_queue.start()
             logger.info("✅ Task queue started")
@@ -432,6 +446,8 @@ if "upload" in routers:
     app.include_router(routers["upload"], tags=["upload"], prefix="/api")
 if "reports" in routers:
     app.include_router(routers["reports"], tags=["reports"], prefix="/api")
+    from app.api.routes.reports import shared_router
+    app.include_router(shared_router, tags=["shared"], prefix="/api")
 # The /api/ai endpoints (ask, explain, chat, models/switch) are a free,
 # unauthenticated proxy to YOUR LLM account, and /models/switch changes
 # the model for every user. The web app doesn't use them, so they are

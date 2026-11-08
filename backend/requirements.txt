@@ -9,6 +9,8 @@ python-dotenv>=1.0.0
 # the app silently falls back to DB stubs.
 sqlalchemy[asyncio]>=2.0.0
 aiosqlite>=0.19.0
+# Postgres (e.g. Neon) for reports that survive redeploys; one driver for async and sync
+psycopg[binary]>=3.1.18
 
 # AI / LLM
 aiohttp>=3.9.0

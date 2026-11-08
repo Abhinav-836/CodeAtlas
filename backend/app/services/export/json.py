@@ -4,9 +4,8 @@ JSON export for analysis reports.
 import json
 from typing import Dict, Any, Optional
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime
 
-from app.core.owner import OWNER_KEY, same_owner
 
 
 def export_json(report_id: str, report_data: Optional[Dict[str, Any]] = None) -> str:
@@ -44,22 +43,17 @@ def export_json(report_id: str, report_data: Optional[Dict[str, Any]] = None) ->
 
 
 def _load_report_from_file(report_id: str) -> Optional[Dict[str, Any]]:
-    """
-    Load report from file.
+    """Load a report: from the database, or from an analysis file on disk."""
+    from app.services import report_store
 
-    Args:
-        report_id: Report ID
+    data = report_store.load(report_id)
+    if data is not None:
+        return data
 
-    Returns:
-        Report data or None if not found
-    """
     possible_paths = [
-        Path(f"storage/reports/{report_id}.json"),
-        Path(f"storage/reports/{report_id}"),
         Path(f"storage/uploads/{report_id}/analysis.json"),
         Path(f"storage/repos/{report_id}/analysis.json"),
     ]
-
     for path in possible_paths:
         if path.exists():
             try:
@@ -69,7 +63,6 @@ def _load_report_from_file(report_id: str) -> Optional[Dict[str, Any]]:
                     return data
             except (json.JSONDecodeError, IOError, UnicodeDecodeError):
                 continue
-
     return None
 
 
@@ -118,163 +111,52 @@ def _make_json_serializable(obj: Any) -> Any:
 
 def save_json_report(data: Dict[str, Any], report_id: Optional[str] = None) -> str:
     """
-    Save analysis report as JSON file.
+    Save an analysis report (to the database, so it survives redeploys).
 
-    Args:
-        data: Analysis data
-        report_id: Optional report ID (generated if not provided)
-
-    Returns:
-        Report ID
+    Returns the report ID: the given one, else the analysis ID, else a new one.
     """
     import uuid
+    from app.services import report_store
 
     if report_id is None:
-        if 'analysis_id' in data:
-            report_id = data['analysis_id']
-        else:
-            report_id = f"report_{uuid.uuid4().hex[:8]}"
-
-    reports_dir = Path("storage/reports")
-    reports_dir.mkdir(parents=True, exist_ok=True)
+        report_id = data.get('analysis_id') or f"report_{uuid.uuid4().hex[:8]}"
 
     data = _add_export_metadata(data, report_id)
-    filename = reports_dir / f"{report_id}.json"
-
     try:
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, default=str)
+        report_store.save(report_id, _make_json_serializable(data))
         return report_id
     except Exception as e:
-        raise RuntimeError(f"Failed to save JSON report: {str(e)}")
-
-
-def _report_stats(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Headline numbers, read from where the analyzer actually stores them."""
-    metrics = data.get('metrics', {}) or {}
-    summary = data.get('summary', {}) or {}
-    security = data.get('security', {}) or {}
-    return {
-        'risk_level': data.get('overall_risk_level') or metrics.get('risk', 'unknown'),
-        'risk_score': data.get('overall_risk_score', metrics.get('risk_score', 0)),
-        'files_analyzed': summary.get('files_analyzed', summary.get('total_files', 0)),
-        'total_lines': metrics.get('total_lines', 0),
-        'secrets_found': security.get('secrets_found', 0),
-        'vulnerabilities_found': security.get('vulnerabilities_found', 0),
-    }
+        raise RuntimeError(f"Failed to save report: {str(e)}")
 
 
 def get_report_list(limit: int = 50, owner: Optional[str] = None) -> Dict[str, Any]:
     """
-    Get list of available reports, newest first.
-
-    Args:
-        limit: Maximum number of reports to return
-        owner: If given, only reports stamped with this owner hash
-
-    Returns:
-        Dictionary with report list
+    The owner's reports, newest first. Without an owner there is nothing to
+    list: reports with no owner (made before ownership existed) are nobody's.
     """
-    reports_dir = Path("storage/reports")
+    from app.services import report_store
 
-    if not reports_dir.exists():
+    if owner is None:
         return {"reports": [], "total": 0, "limit": limit}
-
-    reports = []
-
-    json_files = sorted(
-        reports_dir.glob("*.json"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-
-    for json_file in json_files:
-        try:
-            with open(json_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-
-            if not isinstance(data, dict):
-                continue
-
-            # Only the caller's own reports. Reports with no owner (made
-            # before ownership existed) are visible to nobody.
-            if owner is not None and not same_owner(data.get(OWNER_KEY), owner):
-                continue
-
-            stat = json_file.stat()
-
-            report_info = {
-                'id': json_file.stem,
-                'filename': json_file.name,
-                'size_kb': stat.st_size / 1024,
-                'size_bytes': stat.st_size,
-                'created': datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc).isoformat(),
-                'modified': datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-                'path': data.get('path', 'Unknown'),
-                'analysis_id': data.get('analysis_id', json_file.stem),
-                'repo_name': data.get('repo_name'),
-                **_report_stats(data),
-            }
-
-            reports.append(report_info)
-
-            if len(reports) >= limit:
-                break
-
-        except (IOError, json.JSONDecodeError, UnicodeDecodeError):
-            continue
-
+    reports = report_store.list_for_owner(owner, limit)
     return {"reports": reports, "total": len(reports), "limit": limit}
 
 
 def delete_report(report_id: str) -> bool:
-    """Delete a report file. Returns True if deleted."""
-    report_file = Path("storage/reports") / f"{report_id}.json"
+    """Delete a report. Returns True if it existed."""
+    from app.services import report_store
 
-    if not report_file.exists():
-        return False
-
-    try:
-        report_file.unlink()
-        return True
-    except Exception:
-        return False
+    return report_store.delete(report_id)
 
 
 def get_report_metadata(report_id: str) -> Optional[Dict[str, Any]]:
     """
-    Get report metadata, or None if not found.
+    Report metadata, or None if not found.
 
     NOTE: does not check ownership - callers that serve this to a user
     must check it (the reports router does).
     """
-    report_file = Path(f"storage/reports/{report_id}.json")
+    from app.services import report_store
 
-    if not report_file.exists():
-        return None
-
-    try:
-        with open(report_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-
-        if not isinstance(data, dict):
-            return None
-
-        stat = report_file.stat()
-
-        return {
-            'id': report_id,
-            'filename': report_file.name,
-            'size_bytes': stat.st_size,
-            'modified': datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-            'created': datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc).isoformat(),
-            'path': data.get('path', 'Unknown'),
-            'analysis_id': data.get('analysis_id', report_id),
-            'status': data.get('status', 'unknown'),
-            'timestamp': data.get('timestamp', 'unknown'),
-            'repo_name': data.get('repo_name'),
-            **_report_stats(data),
-        }
-
-    except (IOError, json.JSONDecodeError, UnicodeDecodeError):
-        return None
+    row = report_store.get_row(report_id)
+    return report_store.row_summary(row) if row is not None else None

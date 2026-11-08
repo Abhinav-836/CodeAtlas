@@ -85,6 +85,7 @@ export const reportsAPI = {
   summary: (id) => api.get(`/api/reports/${encodeURIComponent(id)}/summary`),
   remove: (id) => api.delete(`/api/reports/${encodeURIComponent(id)}`),
   search: (q) => api.get(`/api/reports/search?query=${encodeURIComponent(q)}`),
+  get: (id) => api.get(`/api/reports/${encodeURIComponent(id)}`),
   // Downloads through axios so the owner header is sent; a plain link can't.
   download: async (id, format = "json") => {
     const res = await api.get(`/api/reports/${encodeURIComponent(id)}`, {
@@ -93,6 +94,24 @@ export const reportsAPI = {
     });
     saveBlob(res.data, filenameFrom(res.headers, `codeatlas-report.${EXTENSIONS[format] || format}`));
   },
+  share: (id) => api.post(`/api/reports/${encodeURIComponent(id)}/share`),
+  unshare: (id) => api.delete(`/api/reports/${encodeURIComponent(id)}/share`),
+  // Move this browser's reports to another browser's key.
+  transfer: (toKey) => api.post("/api/reports/transfer", { to_key: toKey }),
 };
+
+/** Read-only reports opened through a share link (the link is the permission). */
+export const sharedAPI = {
+  get: (token) => api.get(`/api/shared/${encodeURIComponent(token)}`),
+  download: async (token, format = "pdf") => {
+    const res = await api.get(`/api/shared/${encodeURIComponent(token)}`, {
+      params: { format, download: true },
+      responseType: "blob",
+    });
+    saveBlob(res.data, filenameFrom(res.headers, `codeatlas-report.${EXTENSIONS[format] || format}`));
+  },
+};
+
+export const shareUrl = (token) => `${typeof window === "undefined" ? "" : window.location.origin}/shared/${token}`;
 
 export default api;

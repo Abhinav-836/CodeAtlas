@@ -38,7 +38,9 @@ The frontend polls the task's status and shows live progress until the report is
 - **Vulnerability patterns** — code execution (`eval`, `exec`, dynamic imports), shell and command injection, insecure deserialisation (Python and PHP), disabled TLS verification, `child_process.exec` in Node
 - **Metrics** — files, lines of code, functions, classes, average complexity, language distribution
 - **AI summary** — an executive summary of the codebase, plus `explain` / `ask` endpoints for individual files and questions
-- **Reports page** — every report you've run, searchable, downloadable in four formats, deletable
+- **Reports page** — every report you've run, searchable, viewable in full, downloadable in four formats, deletable. Reports are stored in the database, so they survive redeploys
+- **Share links** — a read-only link to one report: anyone with it can view and download that report and nothing else. Turn it off any time; making a new link kills the old one
+- **Use on another device** — no accounts: your reports belong to a secret key in your browser. Copy the key to another device to see the same reports (and optionally move that browser's reports across)
 - **CLI** — `codeatlas analyze` and `codeatlas export` for running it without the web UI
 
 Not implemented yet: embedding-based semantic code search, and LLM providers other than Ollama.
@@ -97,7 +99,7 @@ Read from `backend/.env`.
 | `LLM_TIMEOUT` | `60` | Seconds |
 | `ENABLE_AI_SUMMARIES` | `true` | Set `false` to skip the AI step entirely |
 | `CORS_ORIGINS` | `http://localhost:3000,http://localhost:8000` | Comma-separated frontend URLs |
-| `DATABASE_URL` | `sqlite+aiosqlite:///./codeatlas.db` | |
+| `DATABASE_URL` | `sqlite+aiosqlite:///./codeatlas.db` | Where reports are stored. In production use Postgres (e.g. a free Neon database) — paste its connection string as-is, `postgresql://…?sslmode=require` included. Tables are created on start-up, and any old report files in `storage/reports` are imported once |
 | `MAX_UPLOAD_SIZE` | `104857600` | Bytes (100 MB) |
 | `MAX_WORKERS` / `ANALYSIS_TIMEOUT` | `4` / `300` | Concurrent analyses / seconds per analysis |
 | `GITHUB_TOKEN` | — | Optional; raises GitHub rate limits when cloning |
@@ -108,13 +110,14 @@ Frontend: `NEXT_PUBLIC_API_URL` — the backend URL, no trailing slash.
 
 ## API
 
-Every route except health needs the `X-Owner-Token` header (32–128 URL-safe characters). Full interactive docs at `/docs`.
+Every route except health and shared links needs the `X-Owner-Token` header (32–128 URL-safe characters). Full interactive docs at `/docs`.
 
 | Area | Endpoints |
 |---|---|
 | Upload | `POST /api/upload/github`, `POST /api/upload/zip`, `GET /api/upload/uploads`, `DELETE /api/upload/uploads/{name}` |
 | Analyse | `POST /api/analyze`, `GET /api/analyze/status/{task_id}`, `GET /api/analyze/results/{task_id}`, `GET /api/analyze/recent`, `GET /api/analyze/queue/stats` |
-| Reports | `GET /api/reports`, `GET /api/reports/search`, `GET /api/reports/{id}?format=json\|html\|markdown\|pdf`, `GET /api/reports/{id}/summary`, `GET /api/reports/{id}/metadata`, `DELETE /api/reports/{id}` |
+| Reports | `GET /api/reports`, `GET /api/reports/search`, `GET /api/reports/{id}?format=json\|html\|markdown\|pdf`, `GET /api/reports/{id}/summary`, `GET /api/reports/{id}/metadata`, `DELETE /api/reports/{id}`, `POST/DELETE /api/reports/{id}/share`, `POST /api/reports/transfer` |
+| Shared (no owner token) | `GET /api/shared/{share_token}?format=json\|html\|markdown\|pdf` |
 | AI | `POST /api/ai/explain`, `POST /api/ai/ask`, `GET /api/ai/models`, `POST /api/ai/models/switch`, `GET /api/ai/status` |
 | Health | `GET /health`, `/health/detailed`, `/health/ready`, `/health/live` |
 
@@ -147,14 +150,14 @@ pip install -r requirements.txt pytest httpx
 python -m pytest
 ```
 
-They upload a small sample project as a ZIP, run a full analysis and check the results: languages, the planted secret (found and masked), the risk score, that server paths never leak, and that one visitor can't see another's uploads, tasks or reports. They also cover ZIP path-traversal rejection and the analyse-path allowlist. No LLM is needed. GitHub Actions runs them and builds the frontend on every push.
+They upload a small sample project as a ZIP, run a full analysis and check the results: languages, the planted secret (found and masked), the risk score, that server paths never leak, and that one visitor can't see another's uploads, tasks or reports. They also cover ZIP path-traversal rejection, the analyse-path allowlist, reports surviving a restart, share links (read-only, revocable) and moving reports to another device. No LLM is needed. To run them against Postgres, set `TEST_DATABASE_URL` to an empty database. GitHub Actions runs them on SQLite and Postgres and builds the frontend on every push.
 
 ## Limitations
 
 - Vulnerability detection is pattern-based, not a full static analyser — treat findings as things to look at, not proof of a bug.
 - Deep analysis is strongest for Python (AST-based vulnerability checks) and JavaScript/TypeScript (complexity via tree-sitter); other languages get file statistics, regex-based scanning and language metrics.
-- Reports are tied to the browser that created them; there's no way to move them to another device yet.
-- On Render's free tier, files on disk are cleared on redeploy, so old reports and uploads don't survive a deploy.
+- There are no accounts. Losing the browser key (clearing site data without having copied it) means losing access to those reports.
+- Uploads and cloned repos are temporary: on Render's free tier the disk is cleared on redeploy. Reports are kept only if `DATABASE_URL` points at Postgres; with the default SQLite file they're on the same disk and are lost too.
 
 ---
 

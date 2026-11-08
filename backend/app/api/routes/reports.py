@@ -5,27 +5,35 @@ Every endpoint is scoped to the caller's owner token (app/core/owner.py):
 you can only list, view, download and delete reports you created.
 A report that doesn't exist and a report that belongs to someone else
 both return the same 404, so report IDs can't be probed.
+
+Reports are stored in the database (app/services/report_store.py), so they
+survive redeploys. An owner can also:
+- make a read-only share link for one report (anyone with the link can view
+  and download it, nothing else), and revoke it;
+- move all their reports to another browser's owner key ("use on another device").
 """
 import asyncio
 import json
 import re
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import datetime
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import secrets
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
-from app.core.owner import get_owner, owns_record, strip_owner
+from app.core.owner import _TOKEN_RE, get_owner, hash_token, owns_record, same_owner, strip_owner
+from app.services import report_store
 from app.services.export.html import export_html
 from app.services.export.json import delete_report, get_report_list
 from app.services.export.markdown import export_markdown
 from app.services.export.pdf import export_pdf
 
 router = APIRouter(prefix="/reports", tags=["reports"])
-
-REPORTS_DIR = Path("storage/reports")
+# Read-only access through a share link; mounted under /api as well.
+shared_router = APIRouter(prefix="/shared", tags=["shared"])
 # Report IDs are UUIDs (or legacy "report_xxxxxxxx"). Anything else is
 # rejected before it gets anywhere near the filesystem.
 _REPORT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -36,22 +44,15 @@ def _not_found(report_id: str) -> HTTPException:
     return HTTPException(status_code=404, detail=f"Report {report_id} not found")
 
 
-def _report_file(report_id: str) -> Path:
+def _check_id(report_id: str) -> None:
     if not _REPORT_ID_RE.match(report_id or ""):
         raise _not_found(report_id)
-    return REPORTS_DIR / f"{report_id}.json"
 
 
 def _load_owned_report_sync(report_id: str, owner: str) -> Dict[str, Any]:
-    path = _report_file(report_id)
-    if not path.is_file():
-        raise _not_found(report_id)
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        raise _not_found(report_id)
-    if not owns_record(data, owner):
+    _check_id(report_id)
+    data = report_store.load(report_id)
+    if data is None or not owns_record(data, owner):
         raise _not_found(report_id)
     return data
 
@@ -61,13 +62,11 @@ async def _load_owned_report(report_id: str, owner: str) -> Dict[str, Any]:
 
 
 def _file_meta(report_id: str) -> Dict[str, Any]:
-    stat = _report_file(report_id).stat()
-    return {
-        "size_bytes": stat.st_size,
-        "size_human": _human_readable_size(stat.st_size),
-        "created": datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc).isoformat(),
-        "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-    }
+    row = report_store.get_row(report_id)
+    if row is None:
+        return {}
+    meta = report_store.row_summary(row)
+    return {k: meta[k] for k in ("size_bytes", "size_human", "created", "modified", "shared")}
 
 
 def _safe_filename(report: Dict[str, Any]) -> str:
@@ -211,14 +210,8 @@ async def search_reports(
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 
-@router.get("/{report_id}")
-async def get_report(
-    report_id: str,
-    format: str = Query("json", description="Output format: json, html, markdown, pdf"),
-    download: bool = Query(False, description="Force download as file"),
-    owner: str = Depends(get_owner),
-):
-    report = strip_owner(await _load_owned_report(report_id, owner))
+async def _render(report: Dict[str, Any], format: str, download: bool):
+    """A report (owner hash already removed) in the requested format."""
     filename = _safe_filename(report)
 
     def attachment(ext: str) -> Dict[str, str]:
@@ -262,6 +255,18 @@ async def get_report(
         raise HTTPException(status_code=500, detail=f"Failed to export report: {str(e)}")
 
 
+@router.get("/{report_id}")
+async def get_report(
+    report_id: str,
+    format: str = Query("json", description="Output format: json, html, markdown, pdf"),
+    download: bool = Query(False, description="Force download as file"),
+    owner: str = Depends(get_owner),
+):
+    report = strip_owner(await _load_owned_report(report_id, owner))
+    report.setdefault("report_id", report_id)
+    return await _render(report, format, download)
+
+
 @router.get("/{report_id}/summary")
 async def get_report_summary(
     report_id: str,
@@ -299,3 +304,63 @@ async def delete_report_endpoint(
         "message": f"Report {report_id} deleted successfully",
         "timestamp": datetime.now().isoformat(),
     }
+
+
+# ── Share links ──────────────────────────────────────────────────────
+# The link carries a random token; only its SHA-256 is stored, like the
+# owner token. One link per report: making a new one replaces the old one.
+
+@router.post("/{report_id}/share")
+async def share_report(report_id: str, owner: str = Depends(get_owner)) -> Dict[str, Any]:
+    await _load_owned_report(report_id, owner)  # 404 unless yours
+    token = secrets.token_urlsafe(24)
+    await asyncio.to_thread(report_store.set_share, report_id, hash_token(token))
+    return {"report_id": report_id, "share_token": token}
+
+
+@router.delete("/{report_id}/share")
+async def unshare_report(report_id: str, owner: str = Depends(get_owner)) -> Dict[str, Any]:
+    await _load_owned_report(report_id, owner)
+    await asyncio.to_thread(report_store.set_share, report_id, None)
+    return {"report_id": report_id, "shared": False}
+
+
+_SHARE_RE = re.compile(r"^[A-Za-z0-9_-]{20,64}$")
+_SHARE_GONE = "This share link doesn't work. It may have been turned off — ask for a new one."
+
+
+@shared_router.get("/{share_token}")
+async def get_shared_report(
+    share_token: str,
+    format: str = Query("json", description="Output format: json, html, markdown, pdf"),
+    download: bool = Query(False),
+):
+    """No owner token needed: the link itself is the permission, read-only."""
+    if not _SHARE_RE.match(share_token or ""):
+        raise HTTPException(status_code=404, detail=_SHARE_GONE)
+    data = await asyncio.to_thread(report_store.load_shared, hash_token(share_token))
+    if data is None:
+        raise HTTPException(status_code=404, detail=_SHARE_GONE)
+    report = strip_owner(data)
+    report["shared_view"] = True
+    return await _render(report, format, download)
+
+
+# ── Moving reports to another device ─────────────────────────────────
+
+@router.post("/transfer")
+async def transfer_reports(
+    to_key: str = Body(..., embed=True, description="The other browser's owner key"),
+    owner: str = Depends(get_owner),
+) -> Dict[str, Any]:
+    """
+    Move all of this browser's reports to the owner key from another browser,
+    so both see the same list once this browser switches to that key.
+    """
+    if not _TOKEN_RE.match(to_key or ""):
+        raise HTTPException(status_code=400, detail="That key isn't valid. Copy it again from the other device.")
+    target = hash_token(to_key)
+    if same_owner(target, owner):
+        return {"moved": 0}
+    moved = await asyncio.to_thread(report_store.transfer, owner, target)
+    return {"moved": moved}

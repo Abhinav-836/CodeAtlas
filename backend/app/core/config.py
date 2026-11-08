@@ -70,9 +70,12 @@ class Settings:
     @property
     def database_url(self) -> str:
         """Get database URL with async support."""
-        url = self.DATABASE_URL
-        if url.startswith("postgresql://"):
-            return url.replace("postgresql://", "postgresql+asyncpg://")
+        url = self.DATABASE_URL.strip()
+        # One Postgres driver (psycopg 3) for both the async app and the sync
+        # report store. It understands Neon's ?sslmode=require&channel_binding=require.
+        for prefix in ("postgres://", "postgresql://", "postgresql+asyncpg://", "postgresql+psycopg2://"):
+            if url.startswith(prefix):
+                return "postgresql+psycopg://" + url[len(prefix):]
         if url.startswith("sqlite:///") and "aiosqlite" not in url:
             return url.replace("sqlite:///", "sqlite+aiosqlite:///")
         return url

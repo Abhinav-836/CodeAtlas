@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { errorMessage, reportsAPI } from "@/lib/api";
+import { errorMessage, reportsAPI, sharedAPI } from "@/lib/api";
 import { fileName, normalizeLevel, repoDisplayName, SEVERITIES } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import { track } from "@/lib/track";
 import Markdown from "./Markdown";
+import ShareReport from "./ShareReport";
 import { SeverityLabel, SeverityMark, severityText } from "./Severity";
 
 const CONFIDENCE = {
@@ -315,7 +316,12 @@ function AiTab({ ai, unavailable }) {
 }
 
 /* ---------- Page ---------- */
-export default function ResultsView({ result }) {
+/**
+ * One report. `shareToken` means it was opened through a share link: read-only,
+ * downloads go through the link, and there's nothing to share or manage.
+ */
+export default function ResultsView({ result, shareToken = null, shared = false }) {
+  const viaLink = Boolean(shareToken);
   const [tab, setTab] = useState("overview");
   const [format, setFormat] = useState("pdf");
   const [downloading, setDownloading] = useState(false);
@@ -335,12 +341,14 @@ export default function ResultsView({ result }) {
     { key: "ai", label: "AI summary" },
   ];
 
+  const canDownload = viaLink || Boolean(result?.report_id);
   const download = async () => {
-    if (!result?.report_id || downloading) return;
+    if (!canDownload || downloading) return;
     setDownloading(true);
     try {
-      await reportsAPI.download(result.report_id, format);
-      track("report_downloaded", { format, from: "results" });
+      if (viaLink) await sharedAPI.download(shareToken, format);
+      else await reportsAPI.download(result.report_id, format);
+      track("report_downloaded", { format, from: viaLink ? "shared" : "results" });
     } catch (err) {
       toast(errorMessage(err, "The download failed."), "error");
     } finally {
@@ -350,6 +358,11 @@ export default function ResultsView({ result }) {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 md:py-14">
+      {viaLink && (
+        <p role="note" className="mb-8 rounded-lg border border-rule bg-surface px-4 py-3 text-sm text-muted">
+          Someone shared this CodeAtlas report with you. It&rsquo;s read-only; you can view it and download a copy.
+        </p>
+      )}
       <header className="flex flex-col gap-8 border-b border-rule pb-10 md:flex-row md:items-end md:justify-between">
         <div className="min-w-0">
           <p className="text-sm text-muted">Report for</p>
@@ -421,14 +434,15 @@ export default function ResultsView({ result }) {
           <button
             type="button"
             onClick={download}
-            disabled={!result?.report_id || downloading}
+            disabled={!canDownload || downloading}
             className="rounded-lg bg-ink px-4 py-2 text-sm font-medium text-paper transition-opacity hover:opacity-90 disabled:opacity-50"
           >
-            {downloading ? "Preparing…" : result?.report_id ? "Download report" : "Report not saved"}
+            {downloading ? "Preparing…" : canDownload ? "Download report" : "Report not saved"}
           </button>
+          {!viaLink && result?.report_id && <ShareReport reportId={result.report_id} shared={shared} />}
         </div>
         <Link href="/#start" className="text-sm text-accent underline underline-offset-4">
-          Analyze another repository
+          {viaLink ? "Analyze your own repository" : "Analyze another repository"}
         </Link>
       </footer>
     </div>

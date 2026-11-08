@@ -29,3 +29,17 @@ export function getOwnerToken() {
     return memoryToken;
   }
 }
+/** Is this a key copied from another browser? Same rule as the server. */
+export const isValidKey = (key) => VALID.test(String(key || "").trim());
+
+/** Switch this browser to another browser's key, so both see the same reports. */
+export function setOwnerToken(token) {
+  const value = String(token || "").trim();
+  if (!VALID.test(value)) throw new Error("That key isn't valid.");
+  memoryToken = value;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, value);
+  } catch {
+    /* storage blocked: the memory copy lasts until the tab closes */
+  }
+}

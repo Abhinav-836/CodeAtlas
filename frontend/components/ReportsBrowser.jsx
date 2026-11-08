@@ -7,7 +7,9 @@ import { errorMessage, reportsAPI } from "@/lib/api";
 import { formatDate, humanSize, repoDisplayName } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import { track } from "@/lib/track";
+import DeviceKey from "./DeviceKey";
 import Modal from "./Modal";
+import ShareReport from "./ShareReport";
 import { SeverityLabel } from "./Severity";
 
 const FORMATS = [
@@ -105,6 +107,9 @@ export default function ReportsBrowser() {
 
   return (
     <>
+      <p className="mt-4 text-sm">
+        <DeviceKey onSwitched={() => load()} />
+      </p>
       <form
         role="search"
         onSubmit={(e) => {
@@ -185,6 +190,7 @@ export default function ReportsBrowser() {
                       >
                         {repoDisplayName(r)}
                       </button>
+                      {r.shared && <span className="ml-2 rounded border border-rule px-1.5 py-0.5 text-xs text-muted">Shared</span>}
                     </td>
                     <td className="py-3 pr-4">
                       <SeverityLabel level={r.risk_level}>
@@ -241,6 +247,12 @@ export default function ReportsBrowser() {
               </div>
             </dl>
 
+            <Link
+              href={`/reports/${encodeURIComponent(selected.id)}`}
+              className="mt-6 inline-block rounded-lg bg-ink px-4 py-2.5 text-sm font-medium text-paper hover:opacity-90"
+            >
+              Open full report
+            </Link>
             <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-rule pt-5">
               <label htmlFor="detail-format" className="sr-only">
                 Format
@@ -261,10 +273,19 @@ export default function ReportsBrowser() {
                 type="button"
                 onClick={() => download(selected)}
                 disabled={busy}
-                className="rounded-lg bg-ink px-4 py-2 text-sm text-paper hover:opacity-90 disabled:opacity-50"
+                className="rounded-lg border border-rule px-4 py-2 text-sm hover:border-ink disabled:opacity-50"
               >
                 {busy ? "Preparing…" : "Download"}
               </button>
+              <ShareReport
+                key={selected.id}
+                reportId={selected.id}
+                shared={Boolean(selected.shared)}
+                onChange={(on) => {
+                  setSelected((s) => (s ? { ...s, shared: on } : s));
+                  setReports((list) => list.map((r) => (r.id === selected.id ? { ...r, shared: on } : r)));
+                }}
+              />
               <button
                 type="button"
                 onClick={() => setConfirmDelete(true)}

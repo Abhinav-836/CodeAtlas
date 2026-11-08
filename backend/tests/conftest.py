@@ -21,7 +21,8 @@ os.chdir(_work)
 os.environ.update(
     {
         "DEBUG": "false",
-        "DATABASE_URL": f"sqlite+aiosqlite:///{_work}/test.db",
+        # Set TEST_DATABASE_URL to an empty Postgres database to run against Postgres.
+        "DATABASE_URL": os.environ.get("TEST_DATABASE_URL") or f"sqlite+aiosqlite:///{_work}/test.db",
         "OLLAMA_BASE_URL": "http://127.0.0.1:9",  # nothing listens here
         "LLM_TIMEOUT": "1",
         "ENABLE_AI_INSIGHTS": "false",
