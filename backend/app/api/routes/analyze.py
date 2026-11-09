@@ -9,9 +9,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.core.config import settings
+from app.core.ai_limits import take_analysis
 from app.core.owner import OWNER_KEY, get_owner, owns_folder, same_owner, strip_owner
 from app.services.export.json import save_json_report
 from app.workers.analyze_task import analyze_repo
@@ -100,11 +101,13 @@ def _relativize_paths(result: Dict[str, Any], repo_root: str) -> Dict[str, Any]:
 
 @router.post("", response_model=Dict[str, Any])
 async def analyze_repository(
+    request: Request,
     path: str,
     options: Optional[Dict[str, Any]] = None,
     owner: str = Depends(get_owner),
 ) -> Dict[str, Any]:
     repo_path = _resolve_safe_repo_path(path, owner)
+    take_analysis(request)  # daily limit per visitor (app/core/ai_limits.py)
 
     try:
         analysis_id = str(uuid.uuid4())

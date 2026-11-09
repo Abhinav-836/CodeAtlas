@@ -12,6 +12,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 import aiohttp
 import requests
 
+from app.core.ai_limits import take_ai_call
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,8 @@ class LLMClient:
 
     # ── Synchronous ────────────────────────────────────────────────
     def call(self, prompt: str, **kwargs) -> str:
+        if take_ai_call():
+            return self._get_fallback_response(prompt)
         try:
             messages = self._prepare_messages(prompt, kwargs.get("system_message"))
             response = requests.post(
@@ -73,6 +76,9 @@ class LLMClient:
 
     # ── Async ──────────────────────────────────────────────────────
     async def call_async(self, prompt: str, **kwargs) -> Dict[str, Any]:
+        limited = take_ai_call()
+        if limited:
+            return {"success": False, "error": limited, "content": limited}
         try:
             messages = self._prepare_messages(prompt, kwargs.get("system_message"))
             async with aiohttp.ClientSession() as session:
@@ -125,6 +131,10 @@ class LLMClient:
         so we buffer raw bytes and split on newlines ourselves rather than
         relying on aiohttp's line iteration (which yields nothing here).
         """
+        limited = take_ai_call()
+        if limited:
+            yield limited
+            return
         try:
             messages = self._prepare_messages(prompt, kwargs.get("system_message"))
             async with aiohttp.ClientSession() as session:
