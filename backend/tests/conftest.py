@@ -26,6 +26,9 @@ os.environ.update(
         "OLLAMA_BASE_URL": "http://127.0.0.1:9",  # nothing listens here
         "LLM_TIMEOUT": "1",
         "ENABLE_AI_INSIGHTS": "false",
+        # Daily limits off for the suite; tests/test_ai_limits.py turns them on
+        "ANALYSES_PER_IP_DAILY": "0",
+        "AI_CALLS_DAILY_TOTAL": "0",
     }
 )
 
