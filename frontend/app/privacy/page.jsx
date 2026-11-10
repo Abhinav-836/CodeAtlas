@@ -6,7 +6,7 @@ export default function Privacy() {
   return (
     <LegalPage title="Privacy policy">
       <p>
-        CodeAtlas is a free tool built by Abhinav Ashutosh (StrattonTrade) that scans a codebase for leaked secrets,
+        CodeAtlas is a free tool built by Abhinav Ashutosh (Kavorin Tech) that scans a codebase for leaked secrets,
         risky patterns and complex files. There are no accounts. This page explains what happens to the code you
         give it. We don&rsquo;t sell data or use it for advertising.
       </p>

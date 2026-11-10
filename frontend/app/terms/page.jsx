@@ -7,7 +7,7 @@ export default function Terms() {
   return (
     <LegalPage title="Terms of service">
       <p>
-        These terms cover your use of CodeAtlas, a free tool built by Abhinav Ashutosh (StrattonTrade). By analyzing a
+        These terms cover your use of CodeAtlas, a free tool built by Abhinav Ashutosh (Kavorin Tech). By analyzing a
         repository or uploading a file, you agree to them.
       </p>
 
