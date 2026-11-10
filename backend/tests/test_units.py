@@ -14,6 +14,11 @@ from app.workers.analyze_task import _calculate_overall_risk_score, _get_risk_le
         ("https://github.com/octo/hello/tree/develop", "hello", "develop"),
         ("git@github.com:octo/hello.git", "hello", None),
         ("gh repo clone octo/hello", "hello", None),
+        # The form's own example format, without https://
+        ("github.com/octo/hello", "hello", None),
+        ("www.github.com/octo/hello", "hello", None),
+        ("GitHub.com/octo/hello/tree/develop", "hello", "develop"),
+        ("octo/hello", "hello", None),
     ],
 )
 def test_github_url_parsing(url, repo, branch):
@@ -52,3 +57,13 @@ def test_risk_score_weights_secrets_by_severity():
         _result({"critical": 5}, secrets=5, vulns={"critical": 3, "high": 4}, avg_complexity=60, files=2000)
     )
     assert worst == 100 and _get_risk_level(worst) == "critical"
+
+
+def test_secret_masking_never_reveals_most_of_a_secret():
+    from app.services.security.secrets_scanner import _mask_secret
+    assert _mask_secret("short") == "***"
+    # A short password keeps only 2 characters (it used to show "Admi*_123")
+    assert _mask_secret("Admin_123") == "Ad********"
+    key = "sk_live_" + "x" * 24 + "9f3a"
+    masked = _mask_secret(key)
+    assert masked.startswith("sk_l") and masked.endswith("9f3a") and "x" not in masked

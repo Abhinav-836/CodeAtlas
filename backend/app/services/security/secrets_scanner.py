@@ -252,14 +252,16 @@ def _get_risk_level(score: int) -> str:
 
 
 def _mask_secret(secret: str) -> str:
+    """
+    Enough to recognise which secret it is, never enough to use it. Short
+    secrets (passwords) used to keep 4 + 4 characters, so "Admin_123" showed
+    as "Admi*_123"; now they keep only 2. Long keys keep 4 at each end.
+    """
     if len(secret) <= 8:
         return "***"
-    first_part = secret[:4]
-    last_part = secret[-4:]
-    mask_length = len(secret) - 8
-    if mask_length > 0:
-        return f"{first_part}{'*' * mask_length}{last_part}"
-    return f"{first_part}{'*' * (len(secret) - 4)}"
+    if len(secret) < 20:
+        return f"{secret[:2]}{'*' * 8}"
+    return f"{secret[:4]}{'*' * 8}{secret[-4:]}"
 
 
 def scan_secrets_git_history(repo_path: str, max_commits: int = 200) -> List[Dict[str, Any]]:

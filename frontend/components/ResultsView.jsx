@@ -103,7 +103,12 @@ function Finding({ file, line, level, title, context, extra }) {
 
 /* ---------- Tabs ---------- */
 function OverviewTab({ result }) {
-  const bySev = result?.security?.by_severity || {};
+  // Code-pattern findings and secrets are graded separately by the backend
+  // (security.by_severity vs secrets_summary.by_risk); count both here, or a
+  // repo with 4 high-risk secrets shows 0 / 0 / 0 / 0.
+  const vulnSev = result?.security?.by_severity || {};
+  const secretSev = result?.security?.secrets_summary?.by_risk || {};
+  const bySev = Object.fromEntries(SEVERITIES.map((lvl) => [lvl, (vulnSev[lvl] || 0) + (secretSev[lvl] || 0)]));
   const recs = result?.recommendations || [];
   return (
     <div className="space-y-12">

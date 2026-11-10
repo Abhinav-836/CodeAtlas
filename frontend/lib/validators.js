@@ -4,10 +4,12 @@ export const MAX_FILE_SIZE_MB = 100;
 export const isValidGitHubUrl = (url) => {
   if (!url || typeof url !== "string") return false;
   const patterns = [
-    /^https?:\/\/github\.com\/[^/\s]+\/[^/\s#?]+(\/tree\/[^\s#?]+)?\/?$/,
+    // With or without https:// and www. (the form's own example is github.com/owner/repo)
+    /^(https?:\/\/)?(www\.)?github\.com\/[^/\s]+\/[^/\s#?]+(\/tree\/[^\s#?]+)?\/?$/i,
     /^git@github\.com:[^/\s]+\/[^/\s]+\.git$/,
     /^gh repo clone [^/\s]+\/[^/\s]+$/,
-    /^[^/\s]+\/[^/\s]+$/,
+    // owner/repo shorthand (but not "github.com/owner", which is missing the repo)
+    /^(?!(www\.)?github\.com\/)[^/\s]+\/[^/\s]+$/i,
   ];
   return patterns.some((p) => p.test(url.trim()));
 };

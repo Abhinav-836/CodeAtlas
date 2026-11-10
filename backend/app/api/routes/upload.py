@@ -120,6 +120,10 @@ def _extract_github_info(url: str) -> Optional[Dict[str, str]]:
         return None
 
     url = url.strip().rstrip("/")
+    # "github.com/owner/repo" and "www.github.com/..." (what people usually
+    # paste, and what the form's example shows) used to fall through to the
+    # owner/repo shorthand below and clone github.com/github.com/owner.
+    url = re.sub(r"^(?:https?://)?(?:www\.)?github\.com/", "https://github.com/", url, flags=re.IGNORECASE)
 
     patterns = [
         (r"^https?://github\.com/([^/]+)/([^/#?]+)/tree/([^/#?]+)", 3),
