@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { analyzeAPI, errorMessage, uploadAPI } from "@/lib/api";
@@ -191,6 +192,11 @@ export default function UploadPanel() {
         {busy && <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" aria-hidden="true" />}
         {buttonLabel}
       </button>
+      <p className="mt-3 text-center text-xs text-muted">
+        Only analyze code you&rsquo;re allowed to share. By continuing you agree to the{" "}
+        <Link href="/terms" className="underline underline-offset-2 hover:text-ink">Terms</Link> and{" "}
+        <Link href="/privacy" className="underline underline-offset-2 hover:text-ink">Privacy policy</Link>.
+      </p>
       {phase === "cloning" && (
         <p className="mt-3 text-center text-sm text-muted">Large repos can take a minute to clone.</p>
       )}

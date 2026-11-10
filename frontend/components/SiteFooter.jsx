@@ -59,6 +59,15 @@ export default function SiteFooter() {
                   Source on GitHub
                 </a>
               </li>
+              <li>
+                <Link href="/privacy" className="hover:text-accent">
+                  Privacy
+                </Link>
+                {" · "}
+                <Link href="/terms" className="hover:text-accent">
+                  Terms
+                </Link>
+              </li>
             </ul>
           </Cell>
           <Cell label="Surveyed by" className="border-b sm:border-b-0 sm:border-r">
